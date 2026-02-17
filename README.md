@@ -39,8 +39,42 @@ Host a **3‑tier LLM stack (opus / sonnet / haiku)** on your own GPU box so you
 - **If mixed‑tier concurrent usage happens**, use the **previous multi‑tenant model** and expect **lower numbers**.
 - “No slowdown” = p95 latency stays acceptable (<2s prefill, stable decode) at ~10–20 tok/s, ~8k context.
 - Longer context, tool calls, or higher max_tokens reduce concurrency (KV cache + overhead).
+- **Concurrency upgrades (Opus 5–10):** see section below.
 
 **How to measure:** vLLM `/metrics` + a load test (vllm‑bench/Locust) for tokens/sec + p95 latency.
+
+---
+
+## Opus @ 5–10 concurrent users — what it takes
+
+If you need **5–10 simultaneous Opus users**, you’re beyond a single‑GPU “default” Opus box. Here are the realistic paths, with tradeoffs:
+
+**Option A — Scale‑out replicas (2–4× Opus pods)**
+- **Concurrency band:** ~5–10 (scale by replica count)
+- **GPU:** **2–4× H100 80GB** (or **H200 141GB** for longer context)
+- **Routing:** **LiteLLM model‑group + round‑robin**, or an external LB in front of multiple LiteLLM instances
+- **Cost (pods, on‑demand):**
+  - H100: **~$3.9k–$8.2k/mo** (2–4× $1.94k–$2.05k)
+  - H200: **~$5.2k–$10.3k/mo** (2–4× $2.59k)
+- **Tradeoff:** best reliability + easy horizontal scaling, but higher cost and more ops.
+
+**Option B — One multi‑GPU box (tensor‑parallel Opus)**
+- **Concurrency band:** ~5–10 (single model instance, higher throughput)
+- **GPU:** **2× H100 80GB** or **2× H200 141GB**
+- **Routing:** one **vLLM** backend (tensor parallel) behind **LiteLLM**
+- **Cost (pods, on‑demand):**
+  - **2× H100:** **~$3.9k–$4.1k/mo**
+  - **2× H200:** **~$5.2k/mo**
+- **Tradeoff:** simpler routing + single model quality, but one big failure domain.
+
+**Option C — Smaller/quantized Opus‑class (quality trade)**
+- **Concurrency band:** ~5–10 on a **single GPU** with short context caps
+- **GPU:** **1× H100 80GB** (70B/72B 4‑bit) **or 1× L40S 48GB** (32B/34B‑class)
+- **Routing:** single vLLM backend behind LiteLLM
+- **Cost (pods, on‑demand):**
+  - **H100:** **~$1.94k–$2.05k/mo**
+  - **L40S:** **~$0.50k–$0.53k/mo**
+- **Tradeoff:** cheapest path to concurrency, but **lower quality** vs true Opus.
 
 ---
 
