@@ -19,6 +19,7 @@ This repo focuses on:
 | **1× H100 80GB** | Always‑on<br>balanced cost | opus+sonnet+haiku<br>single vLLM | 80GB<br>1×GPU | **$2.7–$2.8** | **$1.9k–$2.0k** | Haiku 8–18<br>Sonnet 3–6<br>Opus 1–3 | ⭐⭐⭐⭐ |
 | **1× A100 80GB** | Dev / light prod | sonnet+haiku<br>opus = smaller/quant | 80GB<br>1×GPU | **$1.2–$1.5** | **$0.86k–$1.11k** | Haiku 5–12<br>Sonnet 2–4<br>Opus 1–2 | ⭐⭐⭐ |
 | **1× H100 80GB + 2× L40S 48GB** | Always‑on<br>higher throughput | opus on H100<br>sonnet+haiku on L40S | 176GB<br>3×GPU | **$4.1–$4.3** | **$2.9k–$3.1k** | Haiku 12–25<br>Sonnet 4–8<br>Opus 2–5 | ⭐⭐⭐⭐⭐ |
+| **2× machines: H100/H200 + L40S** | Always‑on<br>predictable latency | **Machine A:** opus (70B/72B)<br>**Machine B:** sonnet+haiku | 80/141GB + 48GB | **$3.4–$4.3** | **$2.4k–$3.1k** | Haiku 12–25<br>Sonnet 4–8<br>Opus 2–5 | ⭐⭐⭐⭐⭐ |
 
 **Notes:**
 - Pod pricing varies by region/market (Community vs Secure). Ranges are **min–median** from RunPod pricing + independent snapshots.
@@ -69,6 +70,17 @@ Routing flow:
 **Cheaper multi‑GPU pod (more headroom):** **1× H100 80GB + 2× L40S 48GB**
 - **H100** for opus, **L40S** for sonnet + haiku.
 - Better throughput and isolation per tier; still one box.
+
+### Two‑machine split (recommended for isolation)
+**Machine A (big):** opus‑tier 70B/72B on **H100 80GB** or **H200 141GB**
+
+**Machine B (mid):** sonnet + haiku on **L40S 48GB** or **A6000 48GB** (or **4090 24GB** for haiku + quantized sonnet)
+
+**Cost (pods on‑demand typical range):**
+- **H100 + L40S:** **$3.38–$3.58/hr** → **$2.43k–$2.58k/mo**
+- **H200 + L40S:** **$4.28–$4.33/hr** → **$3.08k–$3.12k/mo**
+
+**Why split?** isolation, more predictable latency, easier autoscaling of mid‑tier traffic, and a smaller blast radius if one box fails.
 
 **When to use spot/community:** non‑critical workloads, batch inference, or can tolerate preemption. **On‑demand** for always‑on agents and latency‑sensitive apps.
 
@@ -194,15 +206,22 @@ Sources (checked 2026‑02‑17 UTC):
 ---
 
 ## Router setup
-See `deploy/`.
 
-- Each model served via **vLLM** exposing OpenAI‑compatible endpoints.
-- **LiteLLM** provides a single `OPENAI_BASE_URL` for apps, and routes by model name.
+### Option A (recommended): vLLM per model + LiteLLM router
+- Run **1 vLLM server per model** (best isolation).
+- Route with **LiteLLM** so apps always hit **one OpenAI‑compatible endpoint**.
 
-## Integrate with your agent stack
+**Pros:** simple mental model, per‑model autoscaling, easy model swaps
 
-Point your agent system (OpenClaw or any OpenAI‑compatible client) at LiteLLM:
+**Cons:** higher cost if you keep 3 GPUs always‑on
+
+### Option B: single GPU, multiple models (NOT recommended)
+Possible but painful: memory fragmentation, unload/reload overhead, bad latency.
+
+### OpenClaw integration
+Point your OpenClaw OpenAI‑compatible provider at LiteLLM:
+
 - `base_url`: `http(s)://<host>:8000/v1`
 - `api_key`: LiteLLM `master_key` (if enabled)
 
-Then use logical model names: `opus`, `sonnet`, `haiku`.
+Then use logical model aliases: `haiku`, `sonnet`, `opus`.
