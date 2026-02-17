@@ -98,6 +98,21 @@ Sources (checked 2026‑02‑17 UTC):
 
 ---
 
+## Performance vs Pricing (quick eval)
+
+> Costs below use **Serverless Active $/hr** as an **upper‑bound reference**. Pods/instances are often cheaper.
+
+| Config | Target use | Tiers hosted + layout | VRAM / GPU count | Cost (Active $/hr upper‑bound) | Expected throughput / latency (notes) | Reliability | Rec.
+|---|---|---|---|---:|---|---|---|
+| **1× H200 141GB (On‑Demand pod)** | Always‑on agents, heavy reasoning | **opus+sonnet+haiku** on **single vLLM** (shared KV cache) | 141GB / 1 GPU | **$4.46/hr** | **High / Med** — best single‑GPU headroom; long‑context with careful KV cache tuning | **On‑demand recommended** for stability | ⭐⭐⭐⭐⭐ |
+| **1× H100 80GB** | Always‑on, balanced cost | **opus+sonnet+haiku** on **single vLLM** (tight KV cache) | 80GB / 1 GPU | **$3.35/hr** | **Med‑High / Med** — fits all tiers w/ quantization; context length more constrained | **On‑demand recommended** | ⭐⭐⭐⭐ |
+| **1× A100 80GB (budget)** | Dev / light prod | **sonnet+haiku** + **opus** w/ aggressive quant or smaller model | 80GB / 1 GPU | **$2.16/hr** | **Med / Med‑Low** — good value, but slower for heavy reasoning; shorter context | **Spot‑friendly** for non‑critical | ⭐⭐⭐ |
+| **1× H100 80GB + 2× L40S 48GB** | Always‑on agents, higher throughput | **opus** on H100, **sonnet+haiku** on **per‑tier GPUs** | 176GB / 3 GPUs | **$6.01/hr** | **High / Low** — best isolation; parallel queues, fewer KV cache clashes | **On‑demand recommended** | ⭐⭐⭐⭐⭐ |
+
+**Notes:** Real throughput depends on model choice, context length, quantization, and batching. Benchmark your setup with **`vllm-bench`** (e.g., compare tokens/sec and p95 latency across tier configs) before locking infra.
+
+---
+
 ## Single‑machine management (ops)
 
 **OS / services**
