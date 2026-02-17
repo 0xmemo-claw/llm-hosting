@@ -13,17 +13,23 @@ This repo focuses on:
 
 > Costs below use **Pods (on‑demand)** typical ranges (min–median). **Serverless Active** is an upper‑bound reference.
 
-| Config | Best for | Tiers layout | VRAM | Est. cost<br>(Pod $/hr) | Est. monthly<br>(30d) | Score |
-|---|---|---|---|---:|---:|---|
-| **1× H200 141GB** | Always‑on agents<br>long context | opus+sonnet+haiku<br>single vLLM | 141GB<br>1×GPU | **$3.6–$3.6** | **$2.6k–$2.6k** | ⭐⭐⭐⭐⭐ |
-| **1× H100 80GB** | Always‑on<br>balanced cost | opus+sonnet+haiku<br>single vLLM | 80GB<br>1×GPU | **$2.7–$2.8** | **$1.9k–$2.0k** | ⭐⭐⭐⭐ |
-| **1× A100 80GB** | Dev / light prod | sonnet+haiku<br>opus = smaller/quant | 80GB<br>1×GPU | **$1.2–$1.5** | **$0.86k–$1.11k** | ⭐⭐⭐ |
-| **1× H100 80GB + 2× L40S 48GB** | Always‑on<br>higher throughput | opus on H100<br>sonnet+haiku on L40S | 176GB<br>3×GPU | **$4.1–$4.3** | **$2.9k–$3.1k** | ⭐⭐⭐⭐⭐ |
+| Config | Best for | Tiers layout | VRAM | Est. $/hr<br>(Pod) | Est. $/mo<br>(30d) | Simul users<br>(no slowdown) | Score |
+|---|---|---|---|---:|---:|---|---|
+| **1× H200 141GB** | Always‑on agents<br>long context | opus+sonnet+haiku<br>single vLLM | 141GB<br>1×GPU | **$3.6–$3.6** | **$2.6k–$2.6k** | Haiku 15–35<br>Sonnet 5–12<br>Opus 2–5 | ⭐⭐⭐⭐⭐ |
+| **1× H100 80GB** | Always‑on<br>balanced cost | opus+sonnet+haiku<br>single vLLM | 80GB<br>1×GPU | **$2.7–$2.8** | **$1.9k–$2.0k** | Haiku 8–18<br>Sonnet 3–6<br>Opus 1–3 | ⭐⭐⭐⭐ |
+| **1× A100 80GB** | Dev / light prod | sonnet+haiku<br>opus = smaller/quant | 80GB<br>1×GPU | **$1.2–$1.5** | **$0.86k–$1.11k** | Haiku 5–12<br>Sonnet 2–4<br>Opus 1–2 | ⭐⭐⭐ |
+| **1× H100 80GB + 2× L40S 48GB** | Always‑on<br>higher throughput | opus on H100<br>sonnet+haiku on L40S | 176GB<br>3×GPU | **$4.1–$4.3** | **$2.9k–$3.1k** | Haiku 12–25<br>Sonnet 4–8<br>Opus 2–5 | ⭐⭐⭐⭐⭐ |
 
 **Notes:**
 - Pod pricing varies by region/market (Community vs Secure). Ranges are **min–median** from RunPod pricing + independent snapshots.
+- **Concurrency assumptions:**
+  - **User** = interactive chat session at ~10–20 tok/s, ~8k context, average prompt/response.
+  - **No slowdown** = p95 latency stays acceptable (<2s prefill, stable decode) and throughput doesn’t collapse.
+  - Estimates assume typical vLLM batching; longer context, tool calls, or higher max_tokens reduce concurrency (KV cache + overhead).
 - Single‑GPU H100/A100 require tight context + concurrency caps and aggressive quant.
-- Benchmark your setup with **`vllm-bench`** (tokens/sec + p95 latency) before locking infra.
+
+**How to measure:**
+- Use vLLM metrics (`/metrics`) + a load test (e.g., `vllm-bench`, Locust) to capture tokens/sec and p95 latency under target concurrency.
 
 ---
 
