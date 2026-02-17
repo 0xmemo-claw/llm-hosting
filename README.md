@@ -11,16 +11,19 @@ This repo focuses on:
 
 ## Performance vs Pricing (quick eval)
 
-> Costs below use **Serverless Active $/hr** as an **upper‑bound reference**. Pods/instances are often cheaper.
+> Costs below use **Pods (on‑demand)** typical ranges (min–median). **Serverless Active** is an upper‑bound reference.
 
-| Config | Target use | Tiers hosted + layout | VRAM / GPU count | Cost (Active $/hr upper‑bound) | Expected throughput / latency (notes) | Reliability | Rec.
-|---|---|---|---|---:|---|---|---|
-| **1× H200 141GB (On‑Demand pod)** | Always‑on agents, heavy reasoning | **opus+sonnet+haiku** on **single vLLM** (shared KV cache) | 141GB / 1 GPU | **$4.46/hr** | **High / Med** — best single‑GPU headroom; long‑context viable with KV cache tuning | **On‑demand recommended** for stability | ⭐⭐⭐⭐⭐ |
-| **1× H100 80GB** | Always‑on, balanced cost | **opus+sonnet+haiku** on **single vLLM** (tight KV cache) | 80GB / 1 GPU | **$3.35/hr** | **Med‑High / Med** — works **only** with aggressive quant + shorter contexts for 70B‑class | **On‑demand recommended** | ⭐⭐⭐⭐ |
-| **1× A100 80GB (budget)** | Dev / light prod | **sonnet+haiku** + **opus** w/ smaller model or heavy quant | 80GB / 1 GPU | **$2.16/hr** | **Med / Med‑Low** — value pick; expect shorter contexts + stricter concurrency caps | **Spot‑friendly** for non‑critical | ⭐⭐⭐ |
-| **1× H100 80GB + 2× L40S 48GB** | Always‑on agents, higher throughput | **opus** on H100, **sonnet+haiku** on **per‑tier GPUs** | 176GB / 3 GPUs | **$6.01/hr** | **High / Low** — best isolation; parallel queues, fewer KV cache clashes | **On‑demand recommended** | ⭐⭐⭐⭐⭐ |
+| Config | Best for | Tiers layout | VRAM | Est. cost<br>(Pod $/hr) | Est. monthly<br>(30d) | Score |
+|---|---|---|---|---:|---:|---|
+| **1× H200 141GB** | Always‑on agents<br>long context | opus+sonnet+haiku<br>single vLLM | 141GB<br>1×GPU | **$3.6–$3.6** | **$2.6k–$2.6k** | ⭐⭐⭐⭐⭐ |
+| **1× H100 80GB** | Always‑on<br>balanced cost | opus+sonnet+haiku<br>single vLLM | 80GB<br>1×GPU | **$2.7–$2.8** | **$1.9k–$2.0k** | ⭐⭐⭐⭐ |
+| **1× A100 80GB** | Dev / light prod | sonnet+haiku<br>opus = smaller/quant | 80GB<br>1×GPU | **$1.2–$1.5** | **$0.86k–$1.11k** | ⭐⭐⭐ |
+| **1× H100 80GB + 2× L40S 48GB** | Always‑on<br>higher throughput | opus on H100<br>sonnet+haiku on L40S | 176GB<br>3×GPU | **$4.1–$4.3** | **$2.9k–$3.1k** | ⭐⭐⭐⭐⭐ |
 
-**Notes:** Real throughput depends on model choice, context length, quantization, and batching. Benchmark your setup with **`vllm-bench`** (tokens/sec + p95 latency) before locking infra.
+**Notes:**
+- Pod pricing varies by region/market (Community vs Secure). Ranges are **min–median** from RunPod pricing + independent snapshots.
+- Single‑GPU H100/A100 require tight context + concurrency caps and aggressive quant.
+- Benchmark your setup with **`vllm-bench`** (tokens/sec + p95 latency) before locking infra.
 
 ---
 
@@ -102,7 +105,29 @@ nvidia-smi --query-gpu=name,memory.total --format=csv
 
 ---
 
-## RunPod pricing (Serverless, per‑second) — **upper bound for Pod costs**
+## RunPod pricing (Pods + Serverless)
+
+### Pods (on‑demand) — **typical range**
+
+> Pods on‑demand typical range = **min–median** from official RunPod pricing + independent snapshots.
+
+| GPU | Pods on‑demand typical range ($/hr) | Est. $/30d |
+|---|---:|---:|
+| **H200 141GB** | **$3.59–$3.59** | **$2,585–$2,585** |
+| **H100 80GB** | **$2.69–$2.84** | **$1,937–$2,045** |
+| **A100 80GB** | **$1.19–$1.54** | **$857–$1,109** |
+| **L40S 48GB** | **$0.69–$0.74** | **$497–$533** |
+
+> **Always‑on 3 tiers**: expect **~$1.9k–$3.1k/mo** on on‑demand pods (30‑day month), depending on GPU mix and market.
+
+**Sources (checked 2026‑02‑17 UTC):**
+- RunPod GPU Pricing (on‑demand pods): https://www.runpod.io/gpu-pricing
+- Hivenet pricing guide (H100/A100 snapshots): https://compute.hivenet.com/post/runpod-pricing-complete-guide-to-gpu-cloud-costs-in-2025
+- Sentisight L40/L40S snapshot: https://www.sentisight.ai/runpod-ai-cloud-platform-full-stack-ai-apps/
+
+**Note:** H200 currently only appears on RunPod’s official pricing page, so its range reflects that single source.
+
+### Serverless (per‑second) — **upper bound for Pod costs**
 
 Sources (checked 2026‑02‑17 UTC):
 - Docs (per‑second): https://docs.runpod.io/serverless/pricing
@@ -114,13 +139,6 @@ Sources (checked 2026‑02‑17 UTC):
 - per 30‑day month = per day × 30
 
 > Pods/instances are often cheaper than serverless. Treat these as **upper‑bound** estimates.
-
-**Formula:**
-- per hour = per second × 3600
-- per day = per hour × 24
-- per 30‑day month = per day × 30
-
-> Pods/instances usually cost **less** than serverless; treat these as **upper‑bound** estimates until we pull pod pricing.
 
 ### Flex pricing
 | GPU | $/s | $/hr | $/day | $/30d |
