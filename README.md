@@ -1,85 +1,96 @@
-# Claw Launcher — Self-hosted Model Stack (RunPod)
+# LLM Hosting (self-hosted)
 
-Goal: host an on-demand machine (RunPod pod) that can serve **three capability tiers** roughly matching:
-- **Opus-class** (highest quality)
-- **Sonnet-class** (strong mid-tier)
-- **Haiku-class** (cheap/fast)
+Host your **own 3‑tier LLM stack** for personal or company agents — always‑on, predictable, and under your control.
 
-This repo focuses on **open-source** model equivalents + a practical **router setup**.
+This repo focuses on:
+- **One machine** that serves **opus / sonnet / haiku** tiers
+- **vLLM** per model for throughput
+- **LiteLLM** as a router so apps hit one OpenAI‑compatible endpoint
 
-## Quick takeaways
+---
 
-- There is no perfect 1:1 open-source equivalent to Claude Opus/Sonnet/Haiku. The best you can do is **quality bands**.
-- For production you want:
-  1) **vLLM** (OpenAI-compatible endpoints, best throughput)
-  2) **one model per GPU** (simplest + most stable)
-  3) **LiteLLM** as a router (OpenAI-compatible) for `opus|sonnet|haiku` logical model names.
+## 3 tiers + routing (practical)
 
-## RunPod pricing (from RunPod pricing page)
+There is no perfect 1:1 OSS match to Claude Opus/Sonnet/Haiku. We treat them as **quality bands** and route by tier name:
+
+- **opus** → best open‑source quality you can afford
+- **sonnet** → strong mid‑tier for coding + reasoning
+- **haiku** → cheap + fast for tools/agents
+
+**Recommended OSS bands**:
+- **Haiku:** Qwen2.5‑7B, Llama‑3.1/3.2‑8B, Mistral‑7B
+- **Sonnet:** Qwen2.5‑32B, Llama‑3.1‑70B (4‑bit), Mixtral‑8x22B
+- **Opus:** Qwen2.5‑72B / Llama‑3.1‑70B (FP16 if you can), 405B only if multi‑GPU
+
+Routing flow:
+1) Each model served by **vLLM** on its own port
+2) **LiteLLM** routes `opus|sonnet|haiku` to the right backend
+
+---
+
+## Single‑machine setups (opinionated)
+
+### Option A — **1× H200 141GB** (best single‑GPU box)
+- Can host **opus‑class 70B + sonnet + haiku** with multi‑model or separate instances
+- Best chance to keep everything on a single GPU without constant unload/reload
+
+### Option B — **1× H100 80GB** (cheaper single‑GPU)
+- **Opus** likely needs 4‑bit; **sonnet + haiku** can share vLLM but tradeoffs: lower throughput + cache pressure
+- Good if you accept tight memory + some latency spikes
+
+### Option C — **multi‑GPU pod**: **2× 48GB + 1× 80GB**
+- 80GB for **opus**, 48GBs for **sonnet + haiku**
+- If you truly want “one machine” with multiple GPUs, **cost ≈ sum of GPUs** (serverless is an upper bound). Pods are often cheaper — we need real pod pricing to confirm.
+
+---
+
+## RunPod pricing (serverless upper bound)
+
 Source: https://www.runpod.io/pricing
 
-Serverless (per second):
-- **B200 180GB**: $8.64/s flex, $6.84/s active
-- **H200 141GB**: $5.58/s flex, $4.46/s active
-- **H100 80GB**: $4.18/s flex, $3.35/s active
-- **A100 80GB**: $2.72/s flex, $2.17/s active
-- **L40/L40S/6000 Ada 48GB**: $1.90/s flex, $1.33/s active
-- **A6000/A40 48GB**: $1.22/s flex, $0.85/s active
-- **5090 32GB**: $1.58/s flex, $1.11/s active
-- **4090 24GB**: $1.10/s flex, $0.77/s active
-- **L4/A5000/3090 24GB**: $0.69/s flex, $0.48/s active
-- **A4000/A4500/etc 16GB**: $0.58/s flex, $0.40/s active
+**Formula:**
+- per hour = per second × 3600
+- per day = per hour × 24
+- per 30‑day month = per day × 30
 
-(For pods/instances, RunPod pricing varies by region/availability; treat serverless as an upper bound for always-on inference.)
+> Pods/instances usually cost **less** than serverless; treat these as **upper‑bound** estimates until we pull pod pricing.
 
-## Open-source model equivalents (practical bands)
+### Flex pricing
+| GPU | $/s | $/hr | $/day | $/30d |
+|---|---:|---:|---:|---:|
+| **B200 180GB** | $8.64 | $31,104.00 | $746,496.00 | $22,394,880.00 |
+| **H200 141GB** | $5.58 | $20,088.00 | $482,112.00 | $14,463,360.00 |
+| **H100 80GB** | $4.18 | $15,048.00 | $361,152.00 | $10,834,560.00 |
+| **A100 80GB** | $2.72 | $9,792.00 | $235,008.00 | $7,050,240.00 |
+| **48GB (L40/L40S/6000 Ada)** | $1.90 | $6,840.00 | $164,160.00 | $4,924,800.00 |
+| **48GB (A6000/A40)** | $1.22 | $4,392.00 | $105,408.00 | $3,162,240.00 |
+| **24GB (4090)** | $1.10 | $3,960.00 | $95,040.00 | $2,851,200.00 |
+| **24GB (L4/A5000/3090)** | $0.69 | $2,484.00 | $59,616.00 | $1,788,480.00 |
 
-### Haiku-class (fast/cheap)
-Targets: low latency, small cost, good enough reasoning for tools/agents.
+### Active pricing
+| GPU | $/s | $/hr | $/day | $/30d |
+|---|---:|---:|---:|---:|
+| **B200 180GB** | $6.84 | $24,624.00 | $590,976.00 | $17,729,280.00 |
+| **H200 141GB** | $4.46 | $16,056.00 | $385,344.00 | $11,560,320.00 |
+| **H100 80GB** | $3.35 | $12,060.00 | $289,440.00 | $8,683,200.00 |
+| **A100 80GB** | $2.17 | $7,812.00 | $187,488.00 | $5,624,640.00 |
+| **48GB (L40/L40S/6000 Ada)** | $1.33 | $4,788.00 | $114,912.00 | $3,447,360.00 |
+| **48GB (A6000/A40)** | $0.85 | $3,060.00 | $73,440.00 | $2,203,200.00 |
+| **24GB (4090)** | $0.77 | $2,772.00 | $66,528.00 | $1,995,840.00 |
+| **24GB (L4/A5000/3090)** | $0.48 | $1,728.00 | $41,472.00 | $1,244,160.00 |
 
-Good options:
-- **Qwen2.5-7B-Instruct** (strong for size)
-- **Llama 3.1 8B Instruct** / **Llama 3.2 3B/8B** (if you want smaller)
-- **Mistral 7B Instruct v0.3**
-
-Recommended GPU bracket:
-- **24GB** (L4/3090/4090) is plenty for 7B/8B at FP16 or 4-bit.
-
-### Sonnet-class (mid-tier)
-Targets: strong general quality, coding/reasoning, still deployable on 1 GPU if quantized.
-
-Good options:
-- **Qwen2.5-32B-Instruct** (excellent tradeoff)
-- **Llama 3.1 70B Instruct** (better quality, heavier)
-- **Mixtral 8x22B Instruct** (heavy but strong)
-
-Recommended GPU bracket:
-- **48GB** for 32B at FP16 / 70B at 4-bit.
-- **80GB** if you want 70B at FP16 or bigger context + throughput.
-
-### Opus-class (top-tier)
-Targets: best open-source quality you can realistically self-host.
-
-Good options:
-- **Llama 3.1 405B Instruct** (requires multi-GPU, expensive)
-- **Llama 3.1 70B Instruct** (best “single node” practical top-tier)
-- **Qwen2.5-72B-Instruct** (strong competitor to 70B class)
-
-Recommended GPU bracket:
-- **80GB** minimum for 70B/72B at reasonable precision.
-- **141–180GB** or multi-GPU for 405B-class.
+---
 
 ## Router setup
 See `deploy/`.
 
-- Each model served via **vLLM** exposing OpenAI-compatible endpoints.
+- Each model served via **vLLM** exposing OpenAI‑compatible endpoints.
 - **LiteLLM** provides a single `OPENAI_BASE_URL` for apps, and routes by model name.
 
-## What you plug into OpenClaw
-In your `openclaw.json`, set provider endpoints to the LiteLLM router, then define logical model aliases (`opus`, `sonnet`, `haiku`) mapping to the router.
+## Integrate with your agent stack
 
----
+Point your agent system (OpenClaw or any OpenAI‑compatible client) at LiteLLM:
+- `base_url`: `http(s)://<host>:8000/v1`
+- `api_key`: LiteLLM `master_key` (if enabled)
 
-Next steps:
-- Add diagnostics around X signup (separate workstream)
-- Add per-GPU sizing notes for context length + kv-cache
+Then use logical model names: `opus`, `sonnet`, `haiku`.
