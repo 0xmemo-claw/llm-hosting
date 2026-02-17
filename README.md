@@ -24,57 +24,25 @@ Host a **3‑tier LLM stack (opus / sonnet / haiku)** on your own GPU box so you
 
 ## Performance vs Pricing (quick eval)
 
-> Costs below use **Pods (on‑demand)** typical ranges (min–median). **Serverless Active** is an upper‑bound reference.
+> **Pods (on‑demand)** = typical range (min–median). **Flex Pod** = **RunPod Serverless Flex** rates as an **upper‑bound** proxy (RunPod doesn’t publish “Flex Pod” pricing).
 
-| Config | Best for | Tiers layout | VRAM | Est. $/hr<br>(Pod) | Est. $/mo<br>(30d) | Simul users<br>(exclusive tier) | Score |
-|---|---|---|---|---:|---:|---|---|
-| **1× H200 141GB** | Always‑on agents<br>long context | opus+sonnet+haiku<br>single vLLM | 141GB<br>1×GPU | **$3.6–$3.6** | **$2.6k–$2.6k** | Haiku‑only: 15–35<br>Sonnet‑only: 5–12<br>Opus‑only: 2–5 | ⭐⭐⭐⭐⭐ |
-| **1× H100 80GB** | Always‑on<br>balanced cost | opus+sonnet+haiku<br>single vLLM | 80GB<br>1×GPU | **$2.7–$2.8** | **$1.9k–$2.0k** | Haiku‑only: 8–18<br>Sonnet‑only: 3–6<br>Opus‑only: 1–3 | ⭐⭐⭐⭐ |
-| **1× A100 80GB** | Dev / light prod | sonnet+haiku<br>opus = smaller/quant | 80GB<br>1×GPU | **$1.2–$1.5** | **$0.86k–$1.11k** | Haiku‑only: 5–12<br>Sonnet‑only: 2–4<br>Opus‑only: 1–2 | ⭐⭐⭐ |
-| **1× H100 80GB + 2× L40S 48GB** | Always‑on<br>higher throughput | opus on H100<br>sonnet+haiku on L40S | 176GB<br>3×GPU | **$4.1–$4.3** | **$2.9k–$3.1k** | Haiku‑only: 12–25<br>Sonnet‑only: 4–8<br>Opus‑only: 2–5 | ⭐⭐⭐⭐⭐ |
-| **2× machines: H100/H200 + L40S** | Always‑on<br>predictable latency | **Machine A:** opus (70B/72B)<br>**Machine B:** sonnet+haiku | 80/141GB + 48GB | **$3.4–$4.3** | **$2.4k–$3.1k** | Haiku‑only: 12–25<br>Sonnet‑only: 4–8<br>Opus‑only: 2–5 | ⭐⭐⭐⭐⭐ |
+| Config | Best for | Layout | VRAM | Pod on‑demand<br>$/hr | Pod Flex<br>$/hr | Pod on‑demand<br>$/30d | Pod Flex<br>$/30d | Simul users<br>(exclusive tier) | Score |
+|---|---|---|---|---:|---:|---:|---:|---|---|
+| **1× H200 141GB** | Always‑on<br>long context | opus+sonnet+haiku<br>1× vLLM | 141GB<br>1×GPU | **$3.6** | **$5.6** | **$2.6k** | **$4.0k** | Haiku: 15–35<br>Sonnet: 5–12<br>Opus: 2–5 | ⭐⭐⭐⭐⭐ |
+| **1× H100 80GB** | Always‑on<br>balanced cost | opus+sonnet+haiku<br>1× vLLM | 80GB<br>1×GPU | **$2.7–$2.8** | **$4.2** | **$1.9k–$2.0k** | **$3.0k** | Haiku: 8–18<br>Sonnet: 3–6<br>Opus: 1–3 | ⭐⭐⭐⭐ |
+| **1× A100 80GB** | Dev / light prod | sonnet+haiku<br>opus = smaller/quant | 80GB<br>1×GPU | **$1.2–$1.5** | **$2.7** | **$0.86k–$1.11k** | **$2.0k** | Haiku: 5–12<br>Sonnet: 2–4<br>Opus: 1–2 | ⭐⭐⭐ |
+| **1× H100 + 2× L40S** | Always‑on<br>more throughput | opus on H100<br>sonnet+haiku on L40S | 176GB<br>3×GPU | **$4.1–$4.3** | **$8.0** | **$2.9k–$3.1k** | **$5.8k** | Haiku: 12–25<br>Sonnet: 4–8<br>Opus: 2–5 | ⭐⭐⭐⭐⭐ |
+| **2× machines: H100/H200 + L40S** | Always‑on<br>best isolation | **A:** opus<br>**B:** sonnet+haiku | 80/141GB<br>+ 48GB | **$3.4–$4.3** | **$6.1–$7.5** | **$2.4k–$3.1k** | **$4.4k–$5.4k** | Haiku: 12–25<br>Sonnet: 4–8<br>Opus: 2–5 | ⭐⭐⭐⭐⭐ |
+| **Opus 5–10: 2× H100 replicas** | Opus‑only<br>scale‑out | opus only<br>2× vLLM | 160GB<br>2×GPU | **$5.4–$5.7** | **$8.4** | **$3.9k–$4.1k** | **$6.0k** | Opus: 5–7 | ⭐⭐⭐⭐ |
+| **Opus 5–10: 2× H200 (TP)** | Opus‑only<br>single box | opus only<br>1× vLLM (TP) | 282GB<br>2×GPU | **$7.2** | **$11.2** | **$5.2k** | **$8.0k** | Opus: 5–10 | ⭐⭐⭐⭐ |
 
 **Notes (short):**
 - **Exclusive‑tier assumption:** the box is mostly serving **one tier at a time** (e.g., team using Opus now).
-- **If mixed‑tier concurrent usage happens**, use the **previous multi‑tenant model** and expect **lower numbers**.
-- “No slowdown” = p95 latency stays acceptable (<2s prefill, stable decode) at ~10–20 tok/s, ~8k context.
-- Longer context, tool calls, or higher max_tokens reduce concurrency (KV cache + overhead).
-- **Concurrency upgrades (Opus 5–10):** see section below.
+- **Mixed‑tier concurrent usage** lowers these numbers (shared KV cache).
+- **Flex Pod definition:** RunPod doesn’t publish “Flex Pod” pricing; we use **Serverless Flex** rates as an **upper‑bound proxy** for spot/interruptible economics (docs: https://docs.runpod.io/serverless/pricing, pricing page: https://www.runpod.io/pricing).
+- “No slowdown” = acceptable p95 (<2s prefill) at ~10–20 tok/s, ~8k context.
 
 **How to measure:** vLLM `/metrics` + a load test (vllm‑bench/Locust) for tokens/sec + p95 latency.
-
----
-
-## Opus @ 5–10 concurrent users — what it takes
-
-If you need **5–10 simultaneous Opus users**, you’re beyond a single‑GPU “default” Opus box. Here are the realistic paths, with tradeoffs:
-
-**Option A — Scale‑out replicas (2–4× Opus pods)**
-- **Concurrency band:** ~5–10 (scale by replica count)
-- **GPU:** **2–4× H100 80GB** (or **H200 141GB** for longer context)
-- **Routing:** **LiteLLM model‑group + round‑robin**, or an external LB in front of multiple LiteLLM instances
-- **Cost (pods, on‑demand):**
-  - H100: **~$3.9k–$8.2k/mo** (2–4× $1.94k–$2.05k)
-  - H200: **~$5.2k–$10.3k/mo** (2–4× $2.59k)
-- **Tradeoff:** best reliability + easy horizontal scaling, but higher cost and more ops.
-
-**Option B — One multi‑GPU box (tensor‑parallel Opus)**
-- **Concurrency band:** ~5–10 (single model instance, higher throughput)
-- **GPU:** **2× H100 80GB** or **2× H200 141GB**
-- **Routing:** one **vLLM** backend (tensor parallel) behind **LiteLLM**
-- **Cost (pods, on‑demand):**
-  - **2× H100:** **~$3.9k–$4.1k/mo**
-  - **2× H200:** **~$5.2k/mo**
-- **Tradeoff:** simpler routing + single model quality, but one big failure domain.
-
-**Option C — Smaller/quantized Opus‑class (quality trade)**
-- **Concurrency band:** ~5–10 on a **single GPU** with short context caps
-- **GPU:** **1× H100 80GB** (70B/72B 4‑bit) **or 1× L40S 48GB** (32B/34B‑class)
-- **Routing:** single vLLM backend behind LiteLLM
-- **Cost (pods, on‑demand):**
-  - **H100:** **~$1.94k–$2.05k/mo**
-  - **L40S:** **~$0.50k–$0.53k/mo**
-- **Tradeoff:** cheapest path to concurrency, but **lower quality** vs true Opus.
 
 ---
 
@@ -185,6 +153,8 @@ Sources (checked 2026‑02‑17 UTC):
 **Formula:** per hour = per second × 3600 → per day × 24 → per 30‑day month × 30
 
 > Pods/instances are often cheaper than serverless. Treat these as **upper‑bound** estimates.
+>
+> **Note:** RunPod’s **Flex** label here refers to **Serverless Flex workers**, which we use as the **upper‑bound proxy** for “Flex Pod” estimates in the quick‑eval table.
 
 #### Flex pricing
 | GPU | $/s | $/hr | $/day | $/30d |
