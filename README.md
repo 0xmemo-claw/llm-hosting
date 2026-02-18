@@ -33,8 +33,6 @@ Host a **3‑tier LLM stack (opus / sonnet / haiku)** on your own GPU box so you
 | **1× A100 80GB** | Dev / light prod | sonnet+haiku<br>opus = smaller/quant | 80GB<br>1×GPU | **$1.2–$1.5** | **$2.7** | **$0.86k–$1.11k** | **$2.0k** | Haiku: 5–12<br>Sonnet: 2–4<br>Opus: 1–2 | ⭐⭐⭐ |
 | **1× H100 + 2× L40S** | Always‑on<br>more throughput | opus on H100<br>sonnet+haiku on L40S | 176GB<br>3×GPU | **$4.1–$4.3** | **$8.0** | **$2.9k–$3.1k** | **$5.8k** | Haiku: 12–25<br>Sonnet: 4–8<br>Opus: 2–5 | ⭐⭐⭐⭐⭐ |
 | **2× machines: H100/H200 + L40S** | Always‑on<br>best isolation | **A:** opus<br>**B:** sonnet+haiku | 80/141GB<br>+ 48GB | **$3.4–$4.3** | **$6.1–$7.5** | **$2.4k–$3.1k** | **$4.4k–$5.4k** | Haiku: 12–25<br>Sonnet: 4–8<br>Opus: 2–5 | ⭐⭐⭐⭐⭐ |
-| **Opus 5–10: 2× H100 replicas** | Opus‑only<br>scale‑out | opus only<br>2× vLLM | 160GB<br>2×GPU | **$5.4–$5.7** | **$8.4** | **$3.9k–$4.1k** | **$6.0k** | Opus: 5–7 | ⭐⭐⭐⭐ |
-| **Opus 5–10: 2× H200 (TP)** | Opus‑only<br>single box | opus only<br>1× vLLM (TP) | 282GB<br>2×GPU | **$7.2** | **$11.2** | **$5.2k** | **$8.0k** | Opus: 5–10 | ⭐⭐⭐⭐ |
 
 **Notes (short):**
 - **Exclusive‑tier assumption:** the box is mostly serving **one tier at a time** (e.g., team using Opus now).
@@ -55,9 +53,9 @@ There’s no perfect 1:1 OSS match to Claude tiers. We treat them as **quality b
 - **haiku** → cheap + fast for tools/agents
 
 **Recommended OSS bands**
-- **Haiku:** Qwen2.5‑7B, Llama‑3.1/3.2‑8B, Mistral‑7B
-- **Sonnet:** Qwen2.5‑32B, Llama‑3.1‑70B (4‑bit), Mixtral‑8x22B
-- **Opus:** Qwen2.5‑72B / Llama‑3.1‑70B (FP16 if you can), 405B only if multi‑GPU
+- **Haiku:** Devstral Small 2 (24B), GLM‑4.7‑Flash (30B/3B active), Qwen3‑Coder‑30B‑A3B
+- **Sonnet:** GLM‑4.7‑Flash (if on bigger GPU), Qwen3‑Coder‑Next 80B (4‑bit)
+- **Opus:** Qwen3‑Coder‑Next 80B (best within $4k budget), GLM‑4.7 full (355B, if H200)
 
 **Routing flow**
 1) Each model served by **vLLM** on its own port
@@ -67,7 +65,7 @@ There’s no perfect 1:1 OSS match to Claude tiers. We treat them as **quality b
 
 ## Open-Weight Alternatives (Feb 2026)
 
-> **TL;DR:** GLM-4.7-Flash or Devstral Small 2 for haiku, Qwen3-Coder-Next 80B for sonnet, DeepSeek-V3.2 for opus. Multi-GPU required for the full-fat flagship models.
+> **TL;DR ($4k/mo, all-open-weight):** Devstral Small 2 or GLM-4.7-Flash for haiku, GLM-4.7-Flash or Qwen3-Coder-Next 80B for sonnet, Qwen3-Coder-Next 80B as opus-tier (best that fits budget). No Claude API — everything self-hosted.
 
 ### Model overview
 
@@ -116,39 +114,77 @@ There’s no perfect 1:1 OSS match to Claude tiers. We treat them as **quality b
 </details>
 
 <details>
-<summary><strong>Opus band — multi-GPU required</strong></summary>
+<summary><strong>Opus band — honest assessment within $4k/mo</strong></summary>
 
-**Candidates:** DeepSeek-V3.2 (671B), Qwen3-Coder 480B
+**The hard truth:** true flagship models (671B DeepSeek-V3.2, 480B Qwen3-Coder) require **$10k–$16k/mo** in always-on GPU spend — well outside a $4k/mo budget. Here's what actually fits:
 
-| Model | GPU config | Est. Pod $/hr | Serverless Active $/hr | Notes |
-|---|---|---:|---:|---|
-| DeepSeek-V3.2 (FP8) | 4–5× H200 141GB | ~$14.4–$18.0 | ~$17.8–$22.3 | 4× H200 NVLink pod preferred |
-| DeepSeek-V3.2 (FP8) | 8× H100 80GB | ~$21.5–$22.7 | ~$26.8 | Higher cost; widely available |
-| Qwen3-Coder 480B (4-bit) | 4× H200 141GB | ~$14.4 | ~$17.8 | ~240GB needed; coding-focused |
-| Qwen3-Coder 480B (4-bit) | 8× H100 80GB | ~$21.5–$22.7 | ~$26.8 | Fallback if no H200 |
+| Model | GPU config | Est. Pod $/hr | Est. $/30d | Fits $4k? | Notes |
+|---|---|---:|---:|---|---|
+| **Qwen3-Coder-Next 80B (4-bit)** | 1× H200 141GB | $3.59 | ~$2.6k | ✅ | Best opus-class within budget; 3B active params, strong coding/agent |
+| **Qwen3-Coder-Next 80B (4-bit)** | 1× H100 80GB | $2.69–$2.84 | ~$1.9–$2.1k | ✅ | Fits with ~46GB GGUF; most cost-efficient |
+| **GLM-4.7 full (355B, 2-bit)** | 1× H200 141GB | $3.59 | ~$2.6k | ✅ | ~135GB; TIGHT fit on H200. Marginal headroom |
+| **Qwen3-Coder 480B (4-bit)** | 4× H200 141GB | ~$14.4 | ~$10.4k | ❌ way over | 480B needs ~240GB — no single H200 |
+| **DeepSeek-V3.2 (FP8)** | 4–5× H200 141GB | ~$14.4–$18.0 | ~$10.4–$13k | ❌ way over | 671B flagship; multi-GPU only |
 
-> **RunPod pricing estimate:** multi-GPU pods aren't always available. Budget **$10k–$16k/mo** for always-on opus-class open-weight model. Often cheaper to keep using the Claude API at this tier unless volume is very high.
+> **Expectation-setting:** our opus tier **won't match Claude Opus 1:1** — it gets you **70–80% there**. Qwen3-Coder-Next 80B is a MoE model with only 3B active params; it's fast and capable but not a 671B model. That's the trade-off within $4k/mo.
 
-**Verdict:** **DeepSeek-V3.2 on 4× H200** if you're committed. Otherwise: use the Claude API for opus and self-host open-weight for haiku/sonnet only.
+**Verdict:** **Qwen3-Coder-Next 80B on H100 80GB** is the best opus-tier you can run within budget. Add GLM-4.7 full (355B, 2-bit) on H200 if you want a heavier model — it's a tight but possible fit.
 
 </details>
 
 ### What we'd actually deploy
 
-```
-Haiku:  GLM-4.7-Flash (4-bit)        1× RTX 4090    ~$0.47/hr active
-        OR Devstral Small 2 (4-bit)   1× RTX 4090    ~$0.76/hr active
-        
-Sonnet: Qwen3-Coder-Next 80B (4-bit) 2× L40S 48GB   ~$2.66/hr active
-        OR GLM-4.7-Flash              1× L40S 48GB   ~$1.33/hr active (fast/cheap)
+> **Budget constraint: $4k/mo max. Goal: most capable all-open-weight 3-tier setup. No Claude API fallback.**
 
-Opus:   DeepSeek-V3.2 (FP8)          4× H200        ~$17.8/hr active
-        OR keep using Claude API — genuinely cheaper unless you have massive volume
+---
+
+**Option A: Single H200 141GB (~$2.6k/mo on-demand) ✅ Recommended**
+
+Run all three tiers on one H200 — simplest ops, solid quality within budget:
+
+```
+Haiku:  Devstral Small 2 (4-bit)      ┐
+Sonnet: GLM-4.7-Flash (4-bit)         ├─ all on 1× H200 141GB   $3.59/hr → ~$2.6k/mo
+Opus:   Qwen3-Coder-Next 80B (4-bit)  ┘
 ```
 
-**Monthly ballpark (haiku + sonnet self-hosted, opus = Claude API):**
-- 1× RTX 4090 (haiku) + 2× L40S (sonnet): ~**$650–$900/mo** always-on pods
-- Opus via Claude API at modest usage: often cheaper than ~$10k+/mo multi-GPU pod
+- DeepSeek-V3.2 (671B) won't fit — needs ~170GB FP8, exceeds single H200.
+- Qwen3-Coder 480B (4-bit) won't fit — needs ~240GB, exceeds single H200.
+- GLM-4.7 full (355B, 2-bit, ~135GB) is a TIGHT fit on H200 141GB — marginal headroom, risky.
+- **Better:** Qwen3-Coder-Next 80B as opus-tier is the right call: 4-bit ~46GB, fast, strong coding.
+- Budget used: **~$2.6k/mo**. Leaves **$1.4k headroom**.
+
+---
+
+**Option B: H100 80GB + 2× L40S (~$2.1–2.4k/mo) ✅ Most headroom**
+
+Dedicated GPU per tier, more concurrency, lower cost:
+
+```
+Opus:   Qwen3-Coder-Next 80B (4-bit)  1× H100 80GB      $2.69–$2.84/hr → ~$1.9–$2.1k/mo
+Sonnet: GLM-4.7-Flash (4-bit)         1× L40S 48GB      $0.69–$0.74/hr → ~$500–$535/mo
+Haiku:  Devstral Small 2 (4-bit)      1× L40S 48GB      $0.69–$0.74/hr → ~$500–$535/mo
+                                                          Total:          ~$2.9–$3.2k/mo pods
+```
+
+- Qwen3-Coder-Next 80B (4-bit GGUF ~46GB) fits H100 80GB with room to spare.
+- Budget used: **~$2.1–2.4k/mo on-demand pods**. Substantial headroom for burst/Flex.
+
+---
+
+**Option C: 2× H200 (~$5.2k/mo) ❌ Over budget**
+- Would let you run DeepSeek-V3.2 (FP8, TP2) as true opus-tier — but $5.2k/mo exceeds $4k cap.
+
+**Option D: 4× H100 80GB (~$10.8k/mo) ❌ Way over budget**
+- Enough for DeepSeek-V3.2 (8× H100) or Qwen3-Coder 480B — not even close to $4k.
+
+---
+
+> **Expectation-setting:** within $4k/mo, our opus tier (Qwen3-Coder-Next 80B) gets **70–80% of Claude Opus quality** — not a 1:1 replacement, but capable for most coding and agentic workflows.
+
+**Monthly ballpark (Option A — single H200):**
+- All three tiers on 1× H200: ~**$2.6k/mo** always-on on-demand pod
+- $1.4k headroom for storage, networking, or burst Flex capacity
 
 ### Benchmark caveats
 
