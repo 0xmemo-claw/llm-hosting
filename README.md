@@ -65,6 +65,106 @@ There’s no perfect 1:1 OSS match to Claude tiers. We treat them as **quality b
 
 ---
 
+## Open-Weight Alternatives (Feb 2026)
+
+> **TL;DR:** GLM-4.7-Flash or Devstral Small 2 for haiku, Qwen3-Coder-Next 80B for sonnet, DeepSeek-V3.2 for opus. Multi-GPU required for the full-fat flagship models.
+
+### Model overview
+
+| Model | Params (total / active) | Architecture | Context | SWE-Bench* | Min VRAM (quant) | Best GPU config | Tier match | Notes |
+|---|---|---|---|---|---|---|---|---|
+| **Devstral Small 2** | 24B / 24B (dense) | Dense transformer | 256K | ~68% Verified | ~13GB (4-bit) | 1× RTX 3090/4090 | **Haiku** | Best single-24GB coding model; ships w/ Mistral Vibe CLI |
+| **GLM-4.7-Flash** | 30B / 3B active | MoE | 128K | 59.2% Verified | ~6–8GB (4-bit) | 1× RTX 3090/4090 | **Haiku** | Blazing fast (60–80+ tok/s); excels at tool-calling + UI gen |
+| **Qwen3-Coder-30B-A3B** | 30B / 3B active | MoE | 256K | — | ~8GB (4-bit) | 1× 24GB GPU | **Haiku** | Smallest Qwen coder; fits a single consumer GPU |
+| **Qwen3-Coder-Next (80B-A3B)** | 80B / 3B active | MoE | 256K | — | ~46GB (4-bit GGUF) | 2× L40S or 1× H200 | **Sonnet** | Practical Qwen coder tier; strong coding/agent perf |
+| **GLM-4.7 (full)** | 355–384B / 32B active | MoE | 128K | 59.2% Verified | ~135GB (2-bit) | 2× H100 or 1× H200 | **Sonnet–Opus** | Full model; not single-GPU practical |
+| **Qwen3-Coder 480B** | 480B / 35B active | MoE | 256K (→1M) | ~39% Pro Public | ~240GB (4-bit) | 4× H200 or 8× H100 | **Opus** | Flagship; needs serious multi-GPU; coding-agent-first design |
+| **DeepSeek-V3.2** | 671B / 37B active | MoE | 128K | — (top-tier) | ~170GB (FP8) | 4–5× H200 or 8× H100 | **Opus** | Best OSS general-purpose rival to Claude Opus |
+
+> \* SWE-Bench numbers are from mixed sources (Verified vs Pro vs Public subsets). See [benchmark caveats](#benchmark-caveats) below.
+
+### Practical tier mapping
+
+<details>
+<summary><strong>Haiku band — single 24GB GPU (~$0.47–$1.12/hr Serverless Active)</strong></summary>
+
+**Candidates:** Devstral Small 2, GLM-4.7-Flash, Qwen3-Coder-30B-A3B
+
+| Model | GPU | Pod on-demand $/hr | Serverless Active $/hr | Recommended? |
+|---|---|---:|---:|---|
+| Devstral Small 2 (4-bit) | 1× RTX 4090 | ~$0.74 | $0.76 | ✅ Best coding accuracy |
+| GLM-4.7-Flash (4-bit) | 1× RTX 3090/4090 | ~$0.68–$0.74 | $0.47–$0.76 | ✅ Best speed + tool-calling |
+| Qwen3-Coder-30B-A3B (4-bit) | 1× 24GB GPU | ~$0.68–$0.74 | $0.47–$0.76 | ⚠️ Decent; weaker than above two |
+
+**Verdict:** Deploy **Devstral Small 2** if coding accuracy matters. Deploy **GLM-4.7-Flash** if you need raw throughput or heavy tool-calling. Both fit a single 24GB GPU and cost ~$350–$550/mo on always-on pods.
+
+</details>
+
+<details>
+<summary><strong>Sonnet band — 48–96GB GPU (~$1.33–$4.46/hr Serverless Active)</strong></summary>
+
+**Candidates:** Qwen3-Coder-Next 80B, GLM-4.7-Flash (overkill on 48GB), GLM-4.7 full (if you have H200)
+
+| Model | GPU | Pod on-demand $/hr | Serverless Active $/hr | Recommended? |
+|---|---|---:|---:|---|
+| Qwen3-Coder-Next 80B (4-bit GGUF) | 2× L40S 48GB | ~$1.38–$1.48 | $2.66 | ✅ Best fit; ~46GB GGUF |
+| Qwen3-Coder-Next 80B (4-bit) | 1× H200 141GB | $3.59 | $4.46 | ⚠️ Overkill GPU; run with haiku too |
+| GLM-4.7-Flash (4-bit) | 1× L40S 48GB | $0.69–$0.74 | $1.33 | ✅ If latency > accuracy |
+
+**Verdict:** **2× L40S + Qwen3-Coder-Next 80B** is the sweet spot (~$1k–$1.1k/mo). If you already have an H200 for opus, throw GLM-4.7-Flash on a dedicated L40S for sonnet/haiku.
+
+</details>
+
+<details>
+<summary><strong>Opus band — multi-GPU required</strong></summary>
+
+**Candidates:** DeepSeek-V3.2 (671B), Qwen3-Coder 480B
+
+| Model | GPU config | Est. Pod $/hr | Serverless Active $/hr | Notes |
+|---|---|---:|---:|---|
+| DeepSeek-V3.2 (FP8) | 4–5× H200 141GB | ~$14.4–$18.0 | ~$17.8–$22.3 | 4× H200 NVLink pod preferred |
+| DeepSeek-V3.2 (FP8) | 8× H100 80GB | ~$21.5–$22.7 | ~$26.8 | Higher cost; widely available |
+| Qwen3-Coder 480B (4-bit) | 4× H200 141GB | ~$14.4 | ~$17.8 | ~240GB needed; coding-focused |
+| Qwen3-Coder 480B (4-bit) | 8× H100 80GB | ~$21.5–$22.7 | ~$26.8 | Fallback if no H200 |
+
+> **RunPod pricing estimate:** multi-GPU pods aren't always available. Budget **$10k–$16k/mo** for always-on opus-class open-weight model. Often cheaper to keep using the Claude API at this tier unless volume is very high.
+
+**Verdict:** **DeepSeek-V3.2 on 4× H200** if you're committed. Otherwise: use the Claude API for opus and self-host open-weight for haiku/sonnet only.
+
+</details>
+
+### What we'd actually deploy
+
+```
+Haiku:  GLM-4.7-Flash (4-bit)        1× RTX 4090    ~$0.47/hr active
+        OR Devstral Small 2 (4-bit)   1× RTX 4090    ~$0.76/hr active
+        
+Sonnet: Qwen3-Coder-Next 80B (4-bit) 2× L40S 48GB   ~$2.66/hr active
+        OR GLM-4.7-Flash              1× L40S 48GB   ~$1.33/hr active (fast/cheap)
+
+Opus:   DeepSeek-V3.2 (FP8)          4× H200        ~$17.8/hr active
+        OR keep using Claude API — genuinely cheaper unless you have massive volume
+```
+
+**Monthly ballpark (haiku + sonnet self-hosted, opus = Claude API):**
+- 1× RTX 4090 (haiku) + 2× L40S (sonnet): ~**$650–$900/mo** always-on pods
+- Opus via Claude API at modest usage: often cheaper than ~$10k+/mo multi-GPU pod
+
+### Benchmark caveats
+
+<a name="benchmark-caveats"></a>
+
+> ⚠️ **SWE-bench numbers are unreliable comparators.** Here's why:
+>
+> - **Verified vs Pro vs Public** subsets differ wildly. A model scoring 59% on Verified might score ~35% on Pro Public (harder tasks, different agents).
+> - **Contamination:** flagship models (esp. DeepSeek) have been trained on or near benchmark data. Scores on public subsets are optimistic.
+> - **Agent scaffolding matters:** the same base model gets 20–40% improvement with better scaffolding. Scores don't transfer directly to your agent stack.
+> - **Treat as relative signal, not absolute truth.** Use evals on your own tasks/codebase before committing.
+>
+> Sources: [SEAL SWE-bench Pro leaderboard](https://scale.com/leaderboard/swe_bench_pro), [SWE-bench Verified](https://www.swebench.com/), [GLM-4.7 HF](https://huggingface.co/THUDM/GLM-4.7), [Devstral Small 2 blog](https://mistral.ai/news/devstral), [DeepSeek-V3.2 report](https://github.com/deepseek-ai/DeepSeek-V3), [Qwen3-Coder HF](https://huggingface.co/Qwen/Qwen3-Coder-480B-A35B-Instruct)
+
+---
+
 ## Setups (opinionated)
 
 ### One big machine (simplest)
