@@ -105,38 +105,35 @@ vllm serve QuantTrio/MiniMax-M2.5-AWQ \
   -c 131072 -n 8192 --n-gpu-layers 999 --flash-attn
 ```
 
-Both serve an OpenAI-compatible API on port 8000.
+Both serve an OpenAI-compatible API. vLLM runs on port 8001 (not 8000 — Vast.ai's Caddy proxy intercepts 8000).
 
 ---
 
 ## Connect (from any device)
 
-The API is exposed via a Cloudflare Tunnel with API key auth. Works from any device — no SSH, no VPN, no port forwarding.
+vLLM is exposed directly via a Cloudflare Tunnel with `--api-key` auth. No LiteLLM proxy needed on the remote — single hop.
 
 Copy `.env.example` to `.env` and fill in the values. Ask the deployer for the current tunnel URL and API key.
 
 ```bash
 cp .env.example .env
-# edit .env with the values from the deployer
 ```
 
 ```
 Base URL:  $M25_BASE_URL
 API Key:   $M25_API_KEY
-Models:    haiku | sonnet | opus  (all route to M2.5)
+Model:     QuantTrio/MiniMax-M2.5-AWQ
 ```
 
 > Tunnel URL changes on instance restart. See [`endpoints.yaml`](endpoints.yaml) for the current URL and restart instructions.
 
 ### Cursor / Continue / Claw
 
-Set these in your IDE settings:
-
 | Setting | Value |
 |---------|-------|
 | Base URL | `$M25_BASE_URL` |
 | API Key | `$M25_API_KEY` |
-| Model | `haiku` (or `sonnet`, `opus`) |
+| Model | `QuantTrio/MiniMax-M2.5-AWQ` |
 
 ### Python
 
@@ -150,7 +147,7 @@ client = OpenAI(
 )
 
 r = client.chat.completions.create(
-    model="haiku",
+    model="QuantTrio/MiniMax-M2.5-AWQ",
     messages=[{"role": "user", "content": "Hello"}],
     max_tokens=500
 )
@@ -164,19 +161,18 @@ source .env
 curl $M25_BASE_URL/chat/completions \
   -H "Authorization: Bearer $M25_API_KEY" \
   -H "Content-Type: application/json" \
-  -d '{"model":"haiku","messages":[{"role":"user","content":"Hello"}],"max_tokens":500}'
+  -d '{"model":"QuantTrio/MiniMax-M2.5-AWQ","messages":[{"role":"user","content":"Hello"}],"max_tokens":500}'
 ```
 
 ### How it works
 
 ```
 Client (any device)
-  → Cloudflare Tunnel (public HTTPS, no auth layer)
-    → LiteLLM :8001 (API key gate, model aliasing)
-      → vLLM :8000 (inference)
+  → Cloudflare Tunnel (public HTTPS)
+    → vLLM :8001 (--api-key auth, inference)
 ```
 
-Vast.ai's built-in tunnels add cookie-based auth that breaks SDK clients. We run our own `cloudflared` tunnel instead, pointing at LiteLLM which handles auth via `master_key`. See [`endpoints.yaml`](endpoints.yaml) for restart instructions.
+Vast.ai's Caddy proxy intercepts port 8000 with cookie-based auth that breaks SDK clients. We run vLLM on port 8001 and expose it with our own `cloudflared` tunnel. See [`endpoints.yaml`](endpoints.yaml) for restart instructions.
 
 ---
 

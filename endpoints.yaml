@@ -1,21 +1,18 @@
-# MiniMax M2.5 — API Endpoints
+# MiniMax M2.5 — API Endpoint
 #
-# The API is served through a custom Cloudflare Tunnel (not Vast.ai's built-in
-# tunnels, which add cookie-based auth that breaks SDK clients). This tunnel
-# points directly at LiteLLM, which handles API key auth via master_key.
+# vLLM serves the model directly with --api-key for auth.
+# A custom Cloudflare Tunnel exposes port 8001 publicly (bypasses Vast.ai's
+# Caddy proxy on port 8000). No remote LiteLLM needed — single hop.
 #
-# Tunnel URLs change on instance restart. Update the public URL below when
-# restarting the tunnel. To get a stable URL, use a named Cloudflare Tunnel
-# with a custom domain instead of trycloudflare.com.
+# Tunnel URLs change on instance restart. Update the public URL below
+# and in .env when restarting. For a stable URL, use a named Cloudflare
+# Tunnel with a custom domain.
 
 api:
-  description: LiteLLM proxy → vLLM (OpenAI-compatible, API key required)
-  public: https://alumni-summaries-cart-nursing.trycloudflare.com
+  description: vLLM direct (OpenAI-compatible, API key required)
+  public: https://menus-participate-disclaimers-rejected.trycloudflare.com
   api_key: ${M25_API_KEY}  # see .env
-  models:
-    - haiku
-    - sonnet
-    - opus
+  model: QuantTrio/MiniMax-M2.5-AWQ
   paths:
     chat: /v1/chat/completions
     completions: /v1/completions
@@ -23,23 +20,33 @@ api:
 
 internal:
   vllm:
-    description: vLLM inference server (localhost only)
-    url: http://localhost:8000
-    model: QuantTrio/MiniMax-M2.5-AWQ
-  litellm:
-    description: LiteLLM proxy
+    description: vLLM inference server
     url: http://localhost:8001
-  ray:
-    description: Ray dashboard
-    url: http://localhost:8265
+    model: QuantTrio/MiniMax-M2.5-AWQ
+    port_note: Port 8001 to avoid Vast.ai Caddy proxy on 8000
 
-# --- How to restart the tunnel after instance reboot ---
+# --- How to restart after instance reboot ---
 #
 # ssh -p <PORT> root@<HOST> -i cred.pem
 #
+# # 1. Start vLLM on port 8001 (not 8000 — Caddy intercepts 8000)
+# export VLLM_USE_DEEP_GEMM=0 VLLM_USE_FLASHINFER_MOE_FP16=1 VLLM_USE_FLASHINFER_SAMPLER=0
+# nohup vllm serve QuantTrio/MiniMax-M2.5-AWQ \
+#   --max-model-len 65536 --gpu-memory-utilization 0.98 \
+#   --trust-remote-code --enforce-eager \
+#   --cpu-offload-gb 50 --max-num-seqs 4 \
+#   --enable-auto-tool-choice --tool-call-parser minimax_m2 \
+#   --reasoning-parser minimax_m2_append_think \
+#   --download-dir /workspace/models --host 0.0.0.0 --port 8001 \
+#   --api-key sk-m25-claw-2026 \
+#   > /var/log/vllm-minimax.log 2>&1 &
+#
+# # 2. Wait for "Application startup complete" (~80s from cache)
+# tail -f /var/log/vllm-minimax.log
+#
+# # 3. Start tunnel
 # nohup /opt/instance-tools/bin/cloudflared tunnel --url http://localhost:8001 \
-#   > /var/log/cloudflared-litellm.log 2>&1 &
+#   > /var/log/cloudflared-vllm.log 2>&1 &
+# grep 'trycloudflare.com' /var/log/cloudflared-vllm.log
 #
-# grep 'trycloudflare.com' /var/log/cloudflared-litellm.log
-#
-# Update the public URL above with the new trycloudflare.com address.
+# # 4. Update .env and endpoints.yaml with the new tunnel URL

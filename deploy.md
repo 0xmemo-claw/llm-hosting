@@ -68,10 +68,10 @@ This image has vLLM pre-installed (v0.15.x+ with MiniMax M2.5 support).
 Once the instance is running, Vast.ai provides SSH connection details on the instance page.
 
 ```bash
-ssh -p <PORT> root@<HOST> -i <PRIVATE_KEY> -L 8000:localhost:8000 -L 8001:localhost:8001
+ssh -p <PORT> root@<HOST> -i <PRIVATE_KEY> -L 8001:localhost:8001
 ```
 
-The `-L` flags tunnel the vLLM (8000) and LiteLLM (8001) ports to your local machine.
+The `-L` flag tunnels vLLM (port 8001) to your local machine. We use port 8001 instead of 8000 because Vast.ai's Caddy proxy intercepts port 8000 and adds cookie-based auth that breaks API clients.
 
 Alternatively, open the **Jupyter** interface from the Vast.ai dashboard for a web terminal.
 
@@ -116,12 +116,13 @@ vllm serve QuantTrio/MiniMax-M2.5-AWQ \
   --reasoning-parser minimax_m2_append_think \
   --download-dir /workspace/models \
   --host 0.0.0.0 \
-  --port 8000 \
+  --port 8001 \
   --trust-remote-code \
   --enforce-eager \
   --swap-space 16 \
   --cpu-offload-gb 50 \
-  --max-num-seqs 4
+  --max-num-seqs 4 \
+  --api-key <YOUR_API_KEY>
 ```
 
 **32K context (lower latency, no CPU offload overhead):**
@@ -140,11 +141,12 @@ vllm serve QuantTrio/MiniMax-M2.5-AWQ \
   --reasoning-parser minimax_m2_append_think \
   --download-dir /workspace/models \
   --host 0.0.0.0 \
-  --port 8000 \
+  --port 8001 \
   --trust-remote-code \
   --enforce-eager \
   --swap-space 16 \
-  --cpu-offload-gb 30
+  --cpu-offload-gb 30 \
+  --api-key <YOUR_API_KEY>
 ```
 
 **What each flag does:**
@@ -160,6 +162,8 @@ vllm serve QuantTrio/MiniMax-M2.5-AWQ \
 | `--reasoning-parser minimax_m2_append_think` | Correct parser for M2.5 interleaved thinking. Do NOT use `deepseek_r1` — it produces empty `content` fields. |
 | `--trust-remote-code` | Required — M2.5 uses custom model code from HuggingFace. |
 | `--swap-space 16` | 16 GB CPU swap space for overflow. |
+| `--port 8001` | Use 8001 instead of 8000. Vast.ai's Caddy proxy intercepts port 8000 with cookie auth that breaks API clients. |
+| `--api-key <KEY>` | Enables Bearer token auth on the vLLM server. Clients must send `Authorization: Bearer <KEY>`. |
 | `VLLM_USE_DEEP_GEMM=0` | Disables DeepGEMM kernel (recommended by QuantTrio for AWQ). |
 | `VLLM_USE_FLASHINFER_MOE_FP16=1` | Uses FlashInfer for FP16 MoE operations. |
 
@@ -206,17 +210,15 @@ Multi-GPU gives full 32–65K context, higher throughput, and full FP8 quality.
 
 ## Step 5: Verify the API is Running
 
-Once loading completes, vLLM serves an OpenAI-compatible API on port `8000`.
+Once loading completes, vLLM serves an OpenAI-compatible API on port `8001`.
 
 ```bash
-# Health check
-curl http://localhost:8000/health
-
 # List models
-curl http://localhost:8000/v1/models
+curl -H "Authorization: Bearer <YOUR_API_KEY>" http://localhost:8001/v1/models
 
 # Test a completion
-curl http://localhost:8000/v1/chat/completions \
+curl http://localhost:8001/v1/chat/completions \
+  -H "Authorization: Bearer <YOUR_API_KEY>" \
   -H "Content-Type: application/json" \
   -d '{
     "model": "QuantTrio/MiniMax-M2.5-AWQ",
@@ -231,112 +233,44 @@ The response includes `<think>...</think>` reasoning blocks followed by the fina
 
 ---
 
-## Step 6: (Optional) Add LiteLLM as a Proxy
+## Step 6: Expose the API
 
-LiteLLM creates model aliases (like `haiku`, `sonnet`, `opus`) that all route to M2.5. Useful for tools like OpenClaw that expect Anthropic-style model names.
+### Option A: Cloudflare Tunnel (Recommended — works from any device)
 
-### Install LiteLLM
-
-```bash
-pip install 'litellm[proxy]'
-```
-
-The `[proxy]` extra is required — `pip install litellm` alone is missing dependencies like `backoff`.
-
-### Create Config
+Start a `cloudflared` quick tunnel pointing at vLLM on port 8001. This bypasses Vast.ai's built-in tunnels (which add cookie auth that breaks API clients).
 
 ```bash
-cat > litellm_config.yaml << 'EOF'
-model_list:
-  - model_name: haiku
-    litellm_params:
-      model: openai/QuantTrio/MiniMax-M2.5-AWQ
-      api_base: http://localhost:8000/v1
-      api_key: none
+nohup /opt/instance-tools/bin/cloudflared tunnel --url http://localhost:8001 \
+  > /var/log/cloudflared-vllm.log 2>&1 &
 
-  - model_name: sonnet
-    litellm_params:
-      model: openai/QuantTrio/MiniMax-M2.5-AWQ
-      api_base: http://localhost:8000/v1
-      api_key: none
-
-  - model_name: opus
-    litellm_params:
-      model: openai/QuantTrio/MiniMax-M2.5-AWQ
-      api_base: http://localhost:8000/v1
-      api_key: none
-
-litellm_settings:
-  drop_params: true
-  set_verbose: false
-EOF
+# Get the public URL
+grep 'trycloudflare.com' /var/log/cloudflared-vllm.log
 ```
 
-For Path B, replace `openai/QuantTrio/MiniMax-M2.5-AWQ` with `openai/MiniMaxAI/MiniMax-M2.5`.
+The tunnel URL (e.g. `https://some-random-words.trycloudflare.com`) is your public API endpoint. Auth is handled by vLLM's `--api-key` flag — no nginx or additional proxy needed.
 
-### Start LiteLLM
+> Tunnel URLs change on restart. For a stable URL, set up a named Cloudflare Tunnel with a custom domain.
 
-```bash
-litellm --config litellm_config.yaml --port 8001 &
-```
-
-Now you can hit `http://localhost:8001/v1` with model names `haiku`, `sonnet`, or `opus` — they all route to M2.5.
-
----
-
-## Step 7: Expose the API (If Needed Remotely)
-
-### Option A: SSH Tunnel (Simplest)
+### Option B: SSH Tunnel
 
 From your local machine:
 
 ```bash
-# Tunnel both vLLM and LiteLLM
 ssh -p <VAST_PORT> root@<VAST_HOST> -i <PRIVATE_KEY> \
-  -L 8000:localhost:8000 \
   -L 8001:localhost:8001
 ```
 
-Then use `http://localhost:8000/v1` (or `8001`) from your apps.
-
-### Option B: Vast.ai Port Forwarding
-
-Vast.ai auto-maps exposed ports. Check your instance page for the public URL mapped to port 8000. Use that URL as your `api_base`.
-
-### Option C: Reverse Proxy with Auth
-
-For production, add nginx with basic auth or an API key check in front of vLLM:
-
-```bash
-apt-get update && apt-get install -y nginx apache2-utils
-htpasswd -bc /etc/nginx/.htpasswd api <YOUR_PASSWORD>
-```
-
-```nginx
-# /etc/nginx/sites-available/vllm
-server {
-    listen 443 ssl;
-    # ... SSL config ...
-
-    location /v1/ {
-        auth_basic "API";
-        auth_basic_user_file /etc/nginx/.htpasswd;
-        proxy_pass http://localhost:8000;
-    }
-}
-```
+Then use `http://localhost:8001/v1` from your apps.
 
 ---
 
-## Step 8: Connect to OpenClaw (or Other Clients)
+## Step 7: Connect Clients
 
-### OpenClaw / Claw Agent Config
-
-| Setting       | Value                                                                       |
-| ------------- | --------------------------------------------------------------------------- |
-| `base_url`    | `http(s)://<host>:8001/v1` (LiteLLM) or `http(s)://<host>:8000/v1` (direct) |
-| `api_key`     | LiteLLM `master_key` if set, otherwise `none`                               |
-| Model aliases | `haiku`, `sonnet`, `opus` → all route to M2.5                               |
+| Setting | Value |
+|---------|-------|
+| Base URL | `https://<tunnel-url>.trycloudflare.com/v1` or `http://localhost:8001/v1` (SSH) |
+| API Key | The key you set with `--api-key` |
+| Model | `QuantTrio/MiniMax-M2.5-AWQ` |
 
 ### Any OpenAI-Compatible Client
 
@@ -344,8 +278,8 @@ server {
 from openai import OpenAI
 
 client = OpenAI(
-    base_url="http://localhost:8000/v1",
-    api_key="none"
+    base_url="https://<tunnel-url>.trycloudflare.com/v1",
+    api_key="<YOUR_API_KEY>"
 )
 
 response = client.chat.completions.create(
@@ -482,10 +416,7 @@ export VLLM_USE_DEEP_GEMM=0
 export VLLM_USE_FLASHINFER_MOE_FP16=1
 export VLLM_USE_FLASHINFER_SAMPLER=0
 
-# 4. (Optional) Set HuggingFace token for faster downloads
-export HF_TOKEN=hf_xxxxxxxxxxxxxxxxxxxx
-
-# 5. Start vLLM with AWQ model (65K context)
+# 4. Start vLLM with AWQ model (65K context, port 8001, API key auth)
 nohup vllm serve QuantTrio/MiniMax-M2.5-AWQ \
   --max-model-len 65536 \
   --gpu-memory-utilization 0.98 \
@@ -495,28 +426,31 @@ nohup vllm serve QuantTrio/MiniMax-M2.5-AWQ \
   --reasoning-parser minimax_m2_append_think \
   --download-dir /workspace/models \
   --host 0.0.0.0 \
-  --port 8000 \
+  --port 8001 \
   --trust-remote-code \
   --enforce-eager \
   --swap-space 16 \
   --cpu-offload-gb 50 \
-  --max-num-seqs 4 > /var/log/vllm-minimax.log 2>&1 &
+  --max-num-seqs 4 \
+  --api-key <YOUR_API_KEY> \
+  > /var/log/vllm-minimax.log 2>&1 &
 
-# 6. Wait for model to load
+# 5. Wait for model to load
 #    First run: ~5 min (downloads 122 GiB)
 #    Subsequent runs: ~80 seconds
 tail -f /var/log/vllm-minimax.log  # watch for "Application startup complete"
 
-# 7. Verify
-curl http://localhost:8000/v1/models
+# 6. Verify
+curl -H "Authorization: Bearer <YOUR_API_KEY>" http://localhost:8001/v1/models
 
-# 8. (Optional) Start LiteLLM proxy
-pip install 'litellm[proxy]'
-# ... create litellm_config.yaml (see Step 6) ...
-nohup litellm --config litellm_config.yaml --port 8001 > /var/log/litellm.log 2>&1 &
+# 7. Start Cloudflare Tunnel for public access
+nohup /opt/instance-tools/bin/cloudflared tunnel --url http://localhost:8001 \
+  > /var/log/cloudflared-vllm.log 2>&1 &
+grep 'trycloudflare.com' /var/log/cloudflared-vllm.log
 
-# 9. Test
-curl http://localhost:8000/v1/chat/completions \
+# 8. Test
+curl http://localhost:8001/v1/chat/completions \
+  -H "Authorization: Bearer <YOUR_API_KEY>" \
   -H "Content-Type: application/json" \
   -d '{"model":"QuantTrio/MiniMax-M2.5-AWQ","messages":[{"role":"user","content":"Hello!"}],"max_tokens":500}'
 ```
