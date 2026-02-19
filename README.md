@@ -56,8 +56,10 @@ VRAM:          141GB total
 KV cache:      ~26GB free
 Context:       comfortable 32-64K, up to 196K with careful tuning
 Throughput:    ~30-40 tok/s single stream, ~50-60 tok/s (2 streams)
-Monthly cost:  ~$1,577/mo (Vast.ai) · ~$2,585/mo (RunPod)
+Monthly cost:  ~$1,545/mo (Vast.ai Type #29607811, US) · ~$2,585/mo (RunPod)
 ```
+
+**Vast.ai listing:** Type #29607811 (US, 1× H200, $2.146/hr, 99.63% reliability, 18 days max). Best value at 230.2 DLP/$/hr. For production, use Type #30018972 (Iceland, $2.456/hr, 99.904% reliability, 1mo+ max) for higher uptime and longer duration.
 
 Fits the model cleanly at 4-bit. KV cache is tight — keep `max_model_len` at 32-65K for reliable concurrency. Don't push 196K context on a single H200; you'll OOM. Best for teams with sequential workloads or up to ~5-7 effective concurrent users.
 
@@ -78,7 +80,8 @@ Fits the model cleanly at 4-bit. KV cache is tight — keep `max_model_len` at 3
 
 | Setup | Provider | $/hr | tok/s | $/M @ 100% | $/M real-world (30-50%) |
 |---|---|---:|---:|---:|---:|
-| 1× H200 4-bit | Vast.ai | $2.19 | ~35 | ~$17.39 | ~$35-58 |
+| 1× H200 4-bit | Vast.ai (Type #29607811) | $2.15 | ~35 | ~$17.06 | ~$34-57 |
+| 1× H200 4-bit | Vast.ai (Type #30018972) | $2.46 | ~35 | ~$19.52 | ~$39-65 |
 | 1× H200 4-bit | RunPod | $3.59 | ~35 | ~$28.49 | ~$57-95 |
 
 **Claude API comparison:**
@@ -211,7 +214,7 @@ vllm serve Qwen/Qwen3-Coder-Next \
 
 | GPU | **Vast.ai** | **RunPod** | **Lambda** | **AWS** | **GCP** | **Azure** |
 |---|---|---|---|---|---|---|
-| **H200 141GB** | $2.19/hr | $3.59/hr | — | ~$4.50–5.00/hr* | — | — |
+| **H200 141GB** | $2.15/hr (Type #29607811, US) | $3.59/hr | — | ~$4.50–5.00/hr* | — | — |
 | **H100 80GB** | $1.60–1.65/hr | $1.99–2.84/hr | $2.49/hr | $3.90/hr** | $3.00/hr | $6.98/hr |
 | **A100 80GB** | $0.52–0.80/hr | $1.19–1.54/hr | $1.50/hr | $4.10/hr** | — | — |
 | **L40S 48GB** | ~$0.40–0.50/hr | $0.69–0.74/hr | — | — | — | — |
