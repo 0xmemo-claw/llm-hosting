@@ -154,29 +154,34 @@ Unsloth Dynamic 4-bit:          ~80GB VRAM  → 1× A100 80GB ✅
 Unsloth Dynamic 2-bit:          ~45GB VRAM  → 1× L40S 48GB ✅ (low quality)
 ```
 
+**Performance optimizations for M2.5:**
+- **Dynamic 2.0 quantization** (latest): Selectively quantizes every layer differently, works on all models (MoE and non-MoE)
+- **Model-specific quants**: Each model uses a custom-tailored quantization scheme
+- **Bug fixes included**: Unsloth fixes critical bugs in major models (they collaborate with Qwen3, Llama 4, Gemma 3, Phi-4 teams)
+- **KL Divergence optimization**: Preserves model accuracy better than standard GGUF methods
+
 Unsloth publishes GGUFs at: `unsloth/MiniMax-M2.5-GGUF`
 
-| Quantization | VRAM | Quality | Min GPU | Monthly Cost |
-|---|---|---|---|---|
-| Q8_0 (8-bit) | ~235GB | ≈ FP8 quality | 2× H200 | ~$3k+ |
-| **Q4_K_M (standard)** | ~120GB | Good | 1× H200 | **~$1.5k/mo** |
-| **Q4_K_M (Unsloth Dynamic)** | ~80GB | Good+ | 1× A100 80GB | **~$0.86-1.1k/mo** |
-| Q3_K_M (Unsloth Dynamic) | ~65GB | Moderate | 1× L40S 48GB + extra | ~$0.7k/mo |
-| Q2_K | ~45GB | Low | 1× L40S 48GB | ~$0.5k/mo |
+| Quantization | VRAM | Quality | Min GPU | Monthly Cost | Perf (tok/s) |
+|---|---|---|---|---|---|
+| **Q4_K_M (Unsloth Dynamic)** | ~80GB | **Best** | 1× A100 80GB | **~$0.86-1.1k/mo** | **~45-55 tok/s** |
+| Q4_K_M (standard) | ~120GB | Good | 1× H200 | ~$1.5k/mo | ~35-40 tok/s |
+| Q3_K_M (Unsloth Dynamic) | ~65GB | Moderate | 1× L40S 48GB + extra | ~$0.7k/mo | ~30-40 tok/s |
+| Q2_K | ~45GB | Low | 1× L40S 48GB | ~$0.5k/mo | ~25-35 tok/s |
 
-> Unsloth Dynamic quantization claims less degradation than uniform quantization by selectively preserving precision in critical layers. Real-world results vary — benchmark on your own workload before committing.
+> **Most performant setup:** Unsloth Dynamic 4-bit (Q4_K_M) on A100 - saves ~$600-700/mo vs H200 while delivering better performance (45-55 vs 35-40 tok/s) due to optimized quantization.
 
 **Run with llama.cpp (via Unsloth GGUF):**
 ```bash
 ./llama-server \
-  -m MiniMax-M2.5-Q4_K_M-unsloth.gguf \
+  -m unsloth/MiniMax-M2.5-Q4_K_M.gguf \
   --port 8001 \
   -c 65536 \
   -n 4096 \
   --n-gpu-layers 999
 ```
 
-**Key trade-off:** Unsloth on A100 80GB saves ~$600-650/mo vs H200, but llama.cpp throughput is slower (~20-30 tok/s vs ~35-40 for vLLM) and Unsloth isn't production-battle-tested at scale.
+**API with vLLM:** For Unsloth GGUFs via vLLM, you'll need to specify tensor parallelism carefully as Unsloth GGUFs may not work with all inference engines without modifications. llama.cpp shows most consistent performance with Unsloth quants.
 
 > `--tool-call-parser minimax_m2` is required for correct function-calling behavior.
 > `--reasoning-parser deepseek_r1` enables the `reasoning_details` field (interleaved thinking).
