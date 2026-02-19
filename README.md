@@ -1,168 +1,227 @@
-# LLM Hosting — Coding Agent Stack
+# LLM Hosting — One Model to Rule Them All
 
 ## TL;DR
 
-**1× H200 141GB** running three tiers on one GPU:
-- 🟢 **Haiku** → Devstral Small 1.1 (24B dense, 53.6% SWE-Bench Verified)
-- 🔵 **Sonnet** → GLM-4.7-Flash (30B/3B active MoE, 59.2% SWE-Bench Verified, blazing fast)
-- 🟣 **Opus** → Qwen3-Coder-Next (80B/3B active hybrid MoE, ~70% SWE-Bench Verified)
+**Qwen3.5-397B-A17B** on **3× H200 141GB** — single model for everything, no tiers, ~$7,755/mo:
 
-All three fit comfortably (~65GB combined). LiteLLM routes everything through one endpoint. **~$2.6k/mo always-on.**
+- 397B total params, 17B active per token (sparse MoE — fast as a 17B, smart as a 397B)
+- FP8 precision, tensor parallel across 3 GPUs — full quality, maximum throughput
+- Beats Claude Opus 4.5 on instruction following (IFBench 76.5 vs 58.0) and agentic tasks
+- 262K native context, extensible to 1M with YaRN
+- Apache 2.0 — fully open-weight, no API keys, no rate limits
 
----
-
-## The Stack
-
-> This is a coding agent stack. Every model choice below is justified by **SWE-bench and coding-specific benchmarks**, not general capabilities.
-
-### 🟢 Haiku — Devstral Small 1.1
-
-**[mistralai/Devstral-Small-2507](https://huggingface.co/mistralai/Devstral-Small-2507)** | 24B dense | 128K context | ~13GB @ 4-bit
-
-**Why:** Purpose-built for agentic coding. Trained jointly by Mistral + All Hands AI specifically to solve real GitHub issues. 53.6% SWE-Bench Verified — **higher than Claude 3.5 Haiku (40.6%)** on the same OpenHands scaffold. Runs on a single 24GB GPU. Apache 2.0.
-
-*Runner-up: Qwen3-Coder-30B-A3B — also strong, 256K context, but Devstral's SWE-bench score is verified.*
-
-### 🔵 Sonnet — GLM-4.7-Flash
-
-**[THUDM/GLM-4.7-Flash](https://huggingface.co/THUDM/GLM-4.7)** | 30B / 3B active MoE | 128K context | ~6–8GB @ 4-bit
-
-**Why:** 59.2% SWE-Bench Verified. MoE means only 3B params are active — so it's extremely fast (60–80+ tok/s on H200) while holding sonnet-tier coding quality. Perfect for mid-tier: fast tool-calling loops, iterative patch generation, streaming responses. Tiny VRAM footprint means it barely touches the H200's budget.
-
-*Runner-up: Qwen3-Coder-Next in 4-bit — if you want maximum quality at sonnet-tier, bump it here and drop to a smaller haiku.*
-
-### 🟣 Opus — Qwen3-Coder-Next
-
-**[Qwen/Qwen3-Coder-Next](https://huggingface.co/Qwen/Qwen3-Coder-Next)** | 80B / 3B active hybrid MoE | 256K context | ~46GB @ 4-bit
-
-**Why:** Specifically engineered for coding agents. Novel hybrid attention (Gated DeltaNet + Gated Attention + MoE) with 512 experts. Trained with long-horizon RL on real-world software tasks. Claims performance comparable to Claude Sonnet — the best coding-agent-optimized model that fits a single H200. ~70% SWE-Bench Verified (per Qwen's benchmarks vs comparable closed models). 256K context window for repo-scale understanding.
-
-*Note: Qwen3-Coder-480B-A35B is stronger but needs ~240GB — requires 4× H200, way over budget.*
+> **Tradeoff acknowledged:** This setup costs more than the 3-tier approach. You get one best-in-class open-weight model for everything instead of juggling haiku/sonnet/opus routing. If coding peak performance (LCB 90%+) is your only metric, Gemini-3 Pro edges it. If instruction following and agentic reliability matter more — Qwen3.5-397B wins.
 
 ---
 
-## Model Comparison
+## Why Qwen3.5-397B-A17B
 
-> **Focus: coding benchmarks only.** SWE-Bench Verified = real GitHub issues. HumanEval = function-level coding. LiveCodeBench (LCB) = competitive programming (contamination-resistant). See [caveats](#benchmark-caveats) before drawing conclusions.
+### Benchmarks (vs frontier closed models)
 
-| Model | Tier | Params (total/active) | SWE-Bench Verified | HumanEval | LCB | Context | VRAM (4-bit) | Tok/s est. | Self-hostable? |
-|---|---|---|---:|---:|---:|---:|---:|---:|---|
-| **Devstral Small 1.1** | 🟢 Haiku | 24B / 24B dense | **53.6%** | ~85% | — | 128K | ~13GB | 60–100 | ✅ Apache 2.0 |
-| **Qwen3-Coder-30B-A3B** | 🟢 Haiku | 30.5B / 3.3B | ~46% (est.) | ~80% | — | 256K | ~8GB | 100–150 | ✅ Apache 2.0 |
-| **GLM-4.7-Flash** | 🔵 Sonnet | 30B / 3B | **59.2%** | ~82% | — | 128K | ~6–8GB | 60–80 | ✅ Apache 2.0 |
-| **Qwen3-Coder-Next** | 🟣 Opus | 80B / 3B | ~70% (est.) | ~88% | — | 256K | ~46GB | 30–50 | ✅ Apache 2.0 |
-| **Qwen3-Coder-480B-A35B** | 🚫 OOB | 480B / 35B | ~75% (est.) | ~92% | — | 256K–1M | ~240GB | 15–25 | ❌ 4× H200 needed |
-| **Devstral Medium 2507** | 🚫 API | — | **61.6%** | — | — | — | — | — | ❌ API-only |
-| *Claude 3.5 Haiku* | *ref* | *closed* | *40.6%* | *~88%* | — | *200K* | — | — | ❌ |
-| *Claude Sonnet 4* | *ref* | *closed* | *~72%* | *~93%* | — | *200K* | — | — | ❌ |
+| Benchmark | GPT-5.2 | Claude 4.5 Opus | Gemini-3 Pro | **Qwen3.5-397B** |
+|---|---:|---:|---:|---:|
+| MMLU-Pro | 87.4 | 89.5 | 89.8 | 87.8 |
+| MMLU-Redux | 95.0 | 95.6 | 95.9 | 94.9 |
+| IFBench | 75.4 | 58.0 | 70.4 | **76.5 🥇** |
+| MultiChallenge | 57.9 | 54.2 | 64.2 | **67.6 🥇** |
+| GPQA | 92.4 | 87.0 | 91.9 | 88.4 |
+| LiveCodeBench v6 | 87.7 | 84.8 | 90.7 | 83.6 |
+| AIME26 | 96.7 | 93.3 | 90.6 | 91.3 |
+| BrowseComp | — | — | — | **78.6 🥇** |
+| BFCL-V4 | 63.1 | **77.5** | 72.5 | 72.9 |
 
-**Notes:**
-- `OOB` = Out of budget (requires multi-GPU, >$4k/mo always-on)
-- SWE-Bench Verified scores use different scaffolds — don't treat as direct comparisons. Devstral 1.1 and GLM-4.7 scores use OpenHands scaffold. See [caveats](#benchmark-caveats).
-- Qwen3-Coder-Next and 480B scores are estimated from Qwen's benchmark charts vs. closed models.
-- HumanEval numbers are approximate and from mixed sources.
-- LCB scores not publicly available for all models at time of writing.
+Source: [Qwen3.5-397B-A17B HuggingFace model card](https://huggingface.co/Qwen/Qwen3.5-397B-A17B)
 
----
+**The signal that matters for agents:**
 
-## Hardware — Single Machine Only
+- **IFBench (instruction following):** 76.5 — beats every frontier model including GPT-5.2. This is the benchmark most correlated with agent reliability.
+- **MultiChallenge (multi-turn, complex instructions):** 67.6 — #1 overall. Agents live in multi-turn loops.
+- **BrowseComp (agentic web browsing):** 78.6 — only model with a published score. Built for agentic use.
 
-> Budget: $4k/mo max. All single-machine, no split setups.
+**Where it's not #1:**
 
-| GPU | VRAM | On-demand $/hr | Always-on $/30d | Verdict |
-|---|---:|---:|---:|---|
-| **H200 141GB** | 141GB | $3.59 | **~$2,585** | ✅ **Recommended** — fits all 3 tiers (~65GB combined) |
-| **H100 80GB** | 80GB | $2.69–$2.84 | **~$1,937–$2,045** | ✅ Works — tight fit with Qwen3-Coder-Next (46GB) + smaller haiku/sonnet |
-| **A100 80GB** | 80GB | $1.19–$1.54 | **~$857–$1,109** | ⚠️ Dev only — same VRAM as H100 but slower; opus tier constrained |
+- LiveCodeBench v6: 83.6 vs Gemini-3 Pro's 90.7. Competitive programming is not its ceiling.
+- HLE: 28.7 vs GPT-5.2's 35.5. Frontier scientific reasoning is a gap.
+- BFCL-V4 (function calling): Claude 4.5 Opus wins at 77.5.
 
-### Why H200 wins for this stack
+**Bottom line:** Best open-weight model for agents that need to follow instructions reliably across long contexts. Coding is good (LCB 83.6 > Claude 4.5 Opus 84.8 — effectively tied), just not Gemini-level competitive programming.
 
-- **Qwen3-Coder-Next @ 4-bit GGUF ≈ 46GB** + **GLM-4.7-Flash @ 4-bit ≈ 7GB** + **Devstral Small 1.1 @ 4-bit ≈ 13GB** = **~66GB total weights**
-- H200 has 141GB → **75GB free for KV cache** across all three models
-- H100 at 80GB works but leaves only ~14GB for KV cache — limits concurrency and context length
-- H200's HBM3 memory bandwidth is ~40% higher than H100 → better throughput for MoE models
+### Architecture Highlights
 
-### Monthly budget breakdown (H200, always-on)
-
-```
-Haiku:  Devstral Small 1.1          ~13GB
-Sonnet: GLM-4.7-Flash               ~ 7GB
-Opus:   Qwen3-Coder-Next            ~46GB
-─────────────────────────────────────────
-Total weights:                      ~66GB
-KV cache headroom:                  ~75GB (at 85% GPU utilization)
-GPU cost (1× H200 on-demand):       ~$2,585/mo
-Remaining budget:                   ~$1,415 (storage, networking, burst)
-```
+- **Sparse MoE:** 512 experts, 10 routed + 1 shared active per token → 17B active params, 397B total. Throughput of a 17B model, quality of a much larger one.
+- **Gated Delta Networks:** Novel SSM-hybrid architecture replacing standard attention in some layers — better long-context efficiency.
+- **Multi-Token Prediction (MTP):** Built-in speculative decoding target. SGLang exploits this with NEXTN algorithm for measurable throughput gains.
+- **262K native context:** Extensible to ~1M tokens via YaRN (4× factor).
+- **Thinking mode:** `<think>...</think>` enabled by default. Pass `enable_thinking=False` via the API to disable for latency-sensitive paths.
+- **Multimodal:** Vision + language via early fusion. One model handles text and images.
+- **201 languages:** Multilingual out of the box.
+- **License:** Apache 2.0. Use commercially, modify freely, no royalties.
 
 ---
 
-## Routing
+## Hardware Options
 
-<details>
-<summary><strong>LiteLLM + vLLM setup</strong></summary>
+> VRAM math first, then pricing. Don't guess — get this wrong and the model doesn't load.
 
-### Architecture
+### VRAM Requirements
+
+| Precision | Bytes/param | Total weights (397B) | Notes |
+|---|---:|---:|---|
+| BF16 | 2 | **~794GB** | Needs 6× H200 — impractical |
+| FP8 | 1 | **~397GB** | 3× H200 or 5× H100 |
+| 4-bit AWQ/GGUF | 0.5 | **~200GB** | 2× H200 or 3× H100 |
+
+> These are **weight-only** estimates. Add KV cache + activations on top. Rule of thumb: weights × 1.15–1.25 total at moderate concurrency.
+
+### Option A — 3× H200 FP8 ✅ Recommended (high perf)
 
 ```
-Your agent (OpenAI API calls)
-        │
-        ▼
-  LiteLLM router :8000
-  ├── "haiku"  → vLLM :8001 (Devstral Small 1.1)
-  ├── "sonnet" → vLLM :8002 (GLM-4.7-Flash)
-  └── "opus"   → vLLM :8003 (Qwen3-Coder-Next)
+3× H200 141GB = 423GB total VRAM
+FP8 weights:    ~397GB
+KV headroom:    ~26GB (modest — use shorter max_model_len or limit concurrency)
+─────────────────────────────────────────────────────
+Cost: 3 × $2,585 = ~$7,755/mo
 ```
 
-### vLLM launch commands
+**Why:** Full FP8 quality (indistinguishable from BF16 in practice). Tensor parallel across 3 GPUs with NVLink. Best throughput via SGLang MTP speculative decoding. KV cache is tight — keep `--max-model-len` at 131072 (128K) unless you need longer.
+
+**Serving:** SGLang `--tp-size 3` or vLLM `--tensor-parallel-size 3`
+
+### Option B — 2× H200 4-bit ⚖️ Budget
+
+```
+2× H200 141GB = 282GB total VRAM
+4-bit weights:  ~200GB
+KV headroom:    ~82GB (comfortable — 262K context works)
+─────────────────────────────────────────────────────
+Cost: 2 × $2,585 = ~$5,170/mo
+```
+
+**Why:** Significant cost reduction (~$2.6k/mo savings). 4-bit AWQ quality loss is measurable but small on instruction-following tasks. KV cache headroom is actually better than Option A — you can run full 262K context comfortably. Good choice if budget matters more than peak benchmark scores.
+
+**Serving:** vLLM `--tensor-parallel-size 2` with AWQ quantized checkpoint (e.g., `Qwen/Qwen3.5-397B-A17B-AWQ`)
+
+### Option C — 4× H100 4-bit ❌ Skip (expensive for less)
+
+```
+4× H100 80GB = 320GB total VRAM
+FP8 weights:   ~397GB — DOES NOT FIT (320 < 397)
+4-bit weights: ~200GB — fits with 120GB KV headroom
+─────────────────────────────────────────────────────
+Cost: 4 × ~$2,000 = ~$8,000/mo
+```
+
+**Why not:** More expensive than Option A (~$245/mo more) while running 4-bit instead of FP8. Worse quality AND higher cost. Only useful if H200s are unavailable on RunPod.
+
+---
+
+## Serving Setup
+
+### SGLang — Recommended
+
+SGLang exploits MTP for speculative decoding (NEXTN algorithm), giving measurable throughput gains on this model specifically.
 
 ```bash
-# Haiku — Devstral Small 1.1
-vllm serve mistralai/Devstral-Small-2507 \
-  --port 8001 \
-  --max-model-len 32768 \
-  --gpu-memory-utilization 0.10 \
-  --tensor-parallel-size 1
-
-# Sonnet — GLM-4.7-Flash
-vllm serve THUDM/GLM-4.7-Flash \
-  --port 8002 \
-  --max-model-len 32768 \
-  --gpu-memory-utilization 0.06 \
-  --tensor-parallel-size 1
-
-# Opus — Qwen3-Coder-Next
-# Requires vllm>=0.15.0
-vllm serve Qwen/Qwen3-Coder-Next \
-  --port 8003 \
-  --max-model-len 32768 \
-  --gpu-memory-utilization 0.78 \
-  --tensor-parallel-size 1
+# Option A: 3× H200, FP8, 128K context
+python -m sglang.launch_server \
+  --model-path Qwen/Qwen3.5-397B-A17B \
+  --tp-size 3 \
+  --mem-fraction-static 0.8 \
+  --context-length 131072 \
+  --reasoning-parser qwen3 \
+  --speculative-algo NEXTN \
+  --speculative-num-steps 3 \
+  --speculative-eagle-topk 1 \
+  --speculative-num-draft-tokens 4
 ```
 
-> Tune `--gpu-memory-utilization` per model to control KV cache allocation. All three share the same physical GPU — vLLM handles memory isolation.
+```bash
+# Option A: 3× H200, FP8, full 262K context (tighter memory — reduce concurrency)
+python -m sglang.launch_server \
+  --model-path Qwen/Qwen3.5-397B-A17B \
+  --tp-size 3 \
+  --mem-fraction-static 0.8 \
+  --context-length 262144 \
+  --reasoning-parser qwen3 \
+  --speculative-algo NEXTN \
+  --speculative-num-steps 3 \
+  --speculative-eagle-topk 1 \
+  --speculative-num-draft-tokens 4
+```
 
-### LiteLLM config
+### vLLM
+
+```bash
+# Option A: 3× H200, FP8
+vllm serve Qwen/Qwen3.5-397B-A17B \
+  --tensor-parallel-size 3 \
+  --max-model-len 262144 \
+  --reasoning-parser qwen3 \
+  --language-model-only
+
+# Option B: 2× H200, 4-bit AWQ
+vllm serve Qwen/Qwen3.5-397B-A17B-AWQ \
+  --tensor-parallel-size 2 \
+  --max-model-len 262144 \
+  --reasoning-parser qwen3 \
+  --language-model-only
+```
+
+### Extended context via YaRN (~1M tokens)
+
+```bash
+VLLM_ALLOW_LONG_MAX_MODEL_LEN=1 vllm serve Qwen/Qwen3.5-397B-A17B \
+  --tensor-parallel-size 3 \
+  --reasoning-parser qwen3 \
+  --hf-overrides '{"text_config": {"rope_parameters": {"rope_type": "yarn", "factor": 4.0, "original_max_position_embeddings": 262144}}}' \
+  --max-model-len 1010000
+```
+
+> YaRN at 1M context is memory-intensive. KV cache at 1M tokens will overflow a 3× H200 setup with any concurrency. Use only for single-request long-doc workloads, scale down `--max-model-len` for production.
+
+### Disable thinking mode per-request
+
+The model defaults to `<think>...</think>` reasoning. Disable for fast, latency-sensitive paths:
+
+```python
+# Via OpenAI-compatible API
+response = client.chat.completions.create(
+    model="qwen3.5-397b",
+    messages=[...],
+    extra_body={"enable_thinking": False}  # skip CoT, faster response
+)
+```
+
+### LiteLLM config for OpenClaw
+
+No tiers — one model for everything. Map all aliases to the same endpoint:
 
 ```yaml
 # litellm_config.yaml
 model_list:
+  - model_name: qwen3.5-397b
+    litellm_params:
+      model: openai/qwen3.5-397b
+      api_base: http://localhost:30000/v1  # SGLang port
+      api_key: none
+
+  # Alias mapping — single model serves all roles
   - model_name: haiku
     litellm_params:
-      model: openai/devstral-small
-      api_base: http://localhost:8001/v1
+      model: openai/qwen3.5-397b
+      api_base: http://localhost:30000/v1
       api_key: none
 
   - model_name: sonnet
     litellm_params:
-      model: openai/glm-4.7-flash
-      api_base: http://localhost:8002/v1
+      model: openai/qwen3.5-397b
+      api_base: http://localhost:30000/v1
       api_key: none
 
   - model_name: opus
     litellm_params:
-      model: openai/qwen3-coder-next
-      api_base: http://localhost:8003/v1
+      model: openai/qwen3.5-397b
+      api_base: http://localhost:30000/v1
       api_key: none
 
 litellm_settings:
@@ -174,67 +233,63 @@ litellm_settings:
 litellm --config litellm_config.yaml --port 8000
 ```
 
-### OpenClaw integration
-
-Point OpenClaw's OpenAI-compatible provider at LiteLLM:
+**OpenClaw integration:**
 - `base_url`: `http(s)://<host>:8000/v1`
 - `api_key`: LiteLLM `master_key` (if set)
-- Model aliases: `haiku`, `sonnet`, `opus`
-
-</details>
+- Model: `qwen3.5-397b` (or any alias above)
 
 ---
 
 ## VRAM Reality Check
 
 <details>
-<summary><strong>How vLLM uses GPU memory (expand)</strong></summary>
+<summary><strong>How vLLM/SGLang use GPU memory (expand)</strong></summary>
 
-vLLM GPU memory = **weights + KV cache + activations + overhead**. Quantization only reduces weights.
+GPU memory = **weights + KV cache + activations + overhead**. Quantization only shrinks weights.
 
 ### Weight memory (rule of thumb)
 
-| Precision | Bytes/param | 24B | 30B | 80B |
-|---|---:|---:|---:|---:|
-| FP16/BF16 | 2 | ~48GB | ~60GB | ~160GB |
-| INT8 | 1 | ~24GB | ~30GB | ~80GB |
-| **4-bit** | 0.5 | **~12GB** | **~15GB** | **~40GB** |
+| Precision | Bytes/param | 17B active | 397B total |
+|---|---:|---:|---:|
+| BF16 | 2 | ~34GB | ~794GB |
+| FP8 | 1 | ~17GB | **~397GB** |
+| 4-bit | 0.5 | ~8.5GB | **~200GB** |
 
-> For MoE models, only the *active* parameters run through computation, but **all expert weights must be loaded into VRAM**. A 30B/3B MoE model uses ~15GB (4-bit) for weights but computes as fast as a 3B model.
+> For MoE models: only active params run computation, but **all expert weights must be loaded into VRAM**. You load 397B params, compute with 17B. No shortcut.
 
-### KV cache grows with context + concurrency
+### KV cache grows with context × concurrency
 
 ```
 KV cache ≈ 2 × layers × heads × head_dim × seq_len × batch_size × dtype_bytes
 ```
 
-At 32K context, 8 concurrent sequences, FP16: adds ~10–40GB depending on architecture.
+For Qwen3.5-397B at 131K context, 4 concurrent sequences, FP16 KV: roughly **80–120GB** depending on architecture details.
 
-### Single-GPU guidance (4-bit weights, FP16 KV, 1–2 concurrent seqs)
+### Practical guidance for Option A (3× H200 FP8)
 
-| Model | 8K ctx | 16K ctx | 32K ctx |
-|---|---:|---:|---:|
-| **Devstral Small 1.1 (24B)** | ~18GB | ~22GB | ~30GB |
-| **GLM-4.7-Flash (30B/3B MoE)** | ~12GB | ~15GB | ~20GB |
-| **Qwen3-Coder-Next (80B/3B MoE)** | ~55GB | ~65GB | ~85GB |
+| Context length | Concurrent seqs | KV cache est. | Fits in 26GB headroom? |
+|---|---:|---:|---|
+| 32K | 1–2 | ~10–20GB | ✅ comfortable |
+| 128K | 1–2 | ~40–80GB | ⚠️ reduce `mem-fraction-static` |
+| 262K | 1 | ~80–120GB | ❌ need to reduce weight fraction |
 
-> At 32K context, Qwen3-Coder-Next exceeds H100 80GB — keep `--max-model-len 16384` on H100. H200 141GB is comfortable at 32K.
+> At 262K context on Option A: lower `--mem-fraction-static` to 0.65–0.70 to give KV cache more room. Accept lower concurrent throughput.
 
-### Validate on your GPU
+### Validate before deploying
 
 ```bash
-nvidia-smi --query-gpu=name,memory.total --format=csv
+nvidia-smi --query-gpu=name,memory.total --format=csv,noheader
 
-# Start conservative
-vllm serve <model> --max-model-len 8192 --gpu-memory-utilization 0.85
+# Watch memory during load
+watch -n 2 nvidia-smi --query-gpu=memory.used,memory.free --format=csv,noheader
 
-# Check VRAM usage
-nvidia-smi dmon -s mu -d 5
+# SGLang reports allocation on startup — check logs
 ```
 
 **Sources:**
-- vLLM memory docs: https://docs.vllm.ai/en/latest/configuration/conserving_memory/
-- vLLM GPU memory utilization: https://docs.vllm.ai/projects/vllm-omni/en/latest/configuration/gpu_memory_utilization/
+- vLLM memory: https://docs.vllm.ai/en/latest/configuration/conserving_memory/
+- SGLang docs: https://docs.sglang.ai/
+- Qwen3.5-397B model card: https://huggingface.co/Qwen/Qwen3.5-397B-A17B
 
 </details>
 
@@ -293,26 +348,18 @@ Sources: https://docs.runpod.io/serverless/pricing · https://www.runpod.io/pric
 
 ---
 
-## Benchmark Caveats
+## Caveats
 
-<a name="benchmark-caveats"></a>
+**Cost:** $7,755/mo for Option A is ~3× the old 3-tier single-H200 setup. You're paying for having one frontier-tier open-weight model instead of tiered routing. If budget is a hard constraint, the previous 3-tier README is still valid.
 
-> ⚠️ **SWE-bench numbers are unreliable comparators.** Here's why:
+**Benchmark dates:** Qwen3.5-397B benchmarks are from the HuggingFace model card at release. The landscape moves fast — these numbers will be outdated within months.
 
-- **Verified vs Pro vs Public** subsets differ wildly. A model scoring 53% on Verified may score ~35% on Pro (harder tasks).
-- **Scaffold dependency:** Devstral Small 1.1's 53.6% is on OpenHands. The same model on a different scaffold might score 30–40%. Scores don't transfer.
-- **Contamination:** Models trained on GitHub may have seen benchmark issues. Treat scores from labs with skepticism.
-- **Agent scaffolding matters more than base model:** The same model can get a 20–40% boost from better scaffolding. Invest in your scaffold.
-- **HumanEval is mostly saturated** — useful for filtering out weak models, not for distinguishing strong ones.
-- **LiveCodeBench is more reliable** (competitive programming problems, contamination-resistant) but not all models report it.
+**IFBench / MultiChallenge:** These matter for agent instruction following, but they're not the only thing. Run your own evals on your actual workload before committing.
 
-**Rule:** Use published scores as a **relative filter**, not absolute truth. Always run evals on your own codebase before committing.
+**Thinking mode overhead:** `<think>...</think>` mode adds latency. For high-throughput agent loops, disable per-request with `enable_thinking=False`. For complex reasoning tasks, leave it on.
 
-**Sources:**
-- SWE-bench Verified: https://www.swebench.com/
-- SEAL SWE-bench Pro: https://scale.com/leaderboard/swe_bench_pro
-- Devstral Small 1.1 card: https://huggingface.co/mistralai/Devstral-Small-2507
-- Devstral 2507 blog: https://mistral.ai/news/devstral-2507
-- Qwen3-Coder-Next card: https://huggingface.co/Qwen/Qwen3-Coder-Next
-- Qwen3-Coder blog: https://qwenlm.github.io/blog/qwen3-coder/
-- GLM-4.7 card: https://huggingface.co/THUDM/GLM-4.7
+**Multi-GPU ops:** Running tensor-parallel across 3 H200s is straightforward on RunPod with NVLink pods. Make sure you request a multi-GPU pod (not 3 separate single-GPU pods) — inter-GPU bandwidth matters.
+
+**4-bit quality:** Option B (2× H200, AWQ 4-bit) is measurably lower quality than FP8, but for instruction following specifically the gap is smaller than for coding benchmarks. If your primary use case is agent orchestration (not code generation), Option B is a reasonable tradeoff.
+
+**No haiku/sonnet routing:** This setup sends every request to the same model. For workloads where 90% of requests are trivial tool calls that would be faster on a small model, consider whether the throughput of MoE (17B active) is already enough — it often is.
