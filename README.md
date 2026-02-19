@@ -1,8 +1,138 @@
-# LLM Hosting — One Model to Rule Them All
+# LLM Hosting — Self-Hosted Open-Weight Options
 
-## TL;DR
+## Quick Comparison
 
-**Qwen3.5-397B-A17B** on **3× H200 141GB** — single model for everything, no tiers, ~$7,755/mo:
+| | **Option 1 — Personal** | **Option 2 — Premium/Team** |
+|---|---|---|
+| **Model** | Qwen3-Coder-Next (80B/3B active) | Qwen3.5-397B-A17B (397B/17B active) |
+| **Best for** | Solo dev, coding assistant | Teams, agentic workloads, multi-modal |
+| **Budget** | ~$857–1,109/mo (A100) | ~$5,170–7,755/mo (2–3× H200) |
+| **Context** | 256K native | 262K native, ~1M w/ YaRN |
+| **SWE-Bench Verified** | 70.6% 🥇 open-weight value/$ | 68.1% |
+| **IFBench** | — | **76.5** (beats GPT-5.2) |
+| **Architecture** | MoE hybrid (Gated DeltaNet + Gated Attention + MoE) | Sparse MoE (Gated Delta Networks) |
+| **License** | Apache 2.0 | Apache 2.0 |
+| **VRAM (4-bit)** | ~40–46GB → 1× A100 80GB | ~200GB → 2–3× H200 |
+
+**Rule of thumb:** If you're one developer who primarily writes code → Option 1. If you're running agents, handling multi-turn complex instructions, or need team-level throughput → Option 2.
+
+---
+
+## Option 1 — Personal Use: Qwen3-Coder-Next (~$1k–1.5k/mo)
+
+### Why
+
+- **80B total / 3B active** — hybrid MoE: Gated DeltaNet + Gated Attention + MoE, 512 experts
+- **70.6% SWE-Bench Verified** — best open-weight value-per-dollar for coding
+- **Best pass@5 on SWE-rebench** among all open-source models
+- **256K context** (native, extendable)
+- Fits on **one A100 80GB** at 4-bit — cheapest serious GPU option
+- Apache 2.0
+
+### VRAM
+
+| Precision | VRAM | Notes |
+|---|---:|---|
+| FP8 | ~80GB | Fits H100 80GB — barely. No KV cache room. |
+| 4-bit | ~40–46GB | Fits A100 80GB with ~34GB free for KV. **Use this.** |
+
+### Hardware Options
+
+**Option A — 1× A100 80GB (~$857–1,109/mo) ✅ BEST VALUE**
+
+```
+VRAM: 80GB total
+4-bit weights: ~46GB
+KV cache: ~34GB free
+Context: comfortable 32K, up to ~64K with care
+Concurrency: 1–2 requests
+```
+
+Cheapest option that runs the model comfortably. Plenty of KV headroom at 32K context. If you're a solo dev running one request at a time, this is the call.
+
+**Option B — 2× L40S 48GB (~$1,000–1,066/mo) ✅ MORE THROUGHPUT**
+
+```
+VRAM: 96GB total (2× 48GB)
+4-bit weights: ~46GB split across 2 GPUs
+KV cache: ~50GB combined free
+Context: 65K+ comfortable
+Concurrency: 2–4 requests
+```
+
+TP=2 across two L40S gives meaningfully better throughput and more KV headroom for longer context. ~$150–200/mo more than a single A100 — worth it if you're handling multiple concurrent requests or want longer context reliably.
+
+**Option C — 1× H100 80GB (~$1,937–2,045/mo) ⚠️ OVER BUDGET**
+
+```
+VRAM: 80GB total
+FP8 weights: ~80GB (tight — almost no KV room)
+4-bit weights: ~46GB with ~34GB KV
+```
+
+Faster than A100 (HBM3 vs HBM2e), but ~2× the cost for this model. Can run FP8 for full quality with minimal context, or 4-bit with good headroom. Only choose this if H100 availability is better and you're willing to go over the $1.5k target.
+
+### Serving
+
+**1× A100 (or any single GPU):**
+
+```bash
+vllm serve Qwen/Qwen3-Coder-Next \
+  --max-model-len 32768 \
+  --gpu-memory-utilization 0.90 \
+  --tensor-parallel-size 1
+```
+
+**2× L40S (TP=2):**
+
+```bash
+vllm serve Qwen/Qwen3-Coder-Next \
+  --max-model-len 65536 \
+  --gpu-memory-utilization 0.90 \
+  --tensor-parallel-size 2
+```
+
+### LiteLLM Config
+
+Single model serves all tiers — no routing complexity:
+
+```yaml
+# litellm_config.yaml
+model_list:
+  - model_name: haiku
+    litellm_params:
+      model: openai/qwen3-coder-next
+      api_base: http://localhost:8001/v1
+      api_key: none
+
+  - model_name: sonnet
+    litellm_params:
+      model: openai/qwen3-coder-next
+      api_base: http://localhost:8001/v1
+      api_key: none
+
+  - model_name: opus
+    litellm_params:
+      model: openai/qwen3-coder-next
+      api_base: http://localhost:8001/v1
+      api_key: none
+
+litellm_settings:
+  drop_params: true
+  set_verbose: false
+```
+
+```bash
+litellm --config litellm_config.yaml --port 8000
+```
+
+---
+
+## Option 2 — Premium/Team: Qwen3.5-397B-A17B (~$5k–8k/mo)
+
+### TL;DR
+
+**Qwen3.5-397B-A17B** on **3× H200 141GB** — single model for everything, ~$7,755/mo:
 
 - 397B total params, 17B active per token (sparse MoE — fast as a 17B, smart as a 397B)
 - FP8 precision, tensor parallel across 3 GPUs — full quality, maximum throughput
@@ -12,11 +142,9 @@
 
 > **Tradeoff acknowledged:** This setup costs more than the 3-tier approach. You get one best-in-class open-weight model for everything instead of juggling haiku/sonnet/opus routing. If coding peak performance (LCB 90%+) is your only metric, Gemini-3 Pro edges it. If instruction following and agentic reliability matter more — Qwen3.5-397B wins.
 
----
+### Why Qwen3.5-397B-A17B
 
-## Why Qwen3.5-397B-A17B
-
-### Benchmarks (vs frontier closed models)
+#### Benchmarks (vs frontier closed models)
 
 | Benchmark | GPT-5.2 | Claude 4.5 Opus | Gemini-3 Pro | **Qwen3.5-397B** |
 |---|---:|---:|---:|---:|
@@ -46,7 +174,7 @@ Source: [Qwen3.5-397B-A17B HuggingFace model card](https://huggingface.co/Qwen/Q
 
 **Bottom line:** Best open-weight model for agents that need to follow instructions reliably across long contexts. Coding is good (LCB 83.6 > Claude 4.5 Opus 84.8 — effectively tied), just not Gemini-level competitive programming.
 
-### Architecture Highlights
+#### Architecture Highlights
 
 - **Sparse MoE:** 512 experts, 10 routed + 1 shared active per token → 17B active params, 397B total. Throughput of a 17B model, quality of a much larger one.
 - **Gated Delta Networks:** Novel SSM-hybrid architecture replacing standard attention in some layers — better long-context efficiency.
@@ -57,13 +185,11 @@ Source: [Qwen3.5-397B-A17B HuggingFace model card](https://huggingface.co/Qwen/Q
 - **201 languages:** Multilingual out of the box.
 - **License:** Apache 2.0. Use commercially, modify freely, no royalties.
 
----
-
-## Hardware Options
+### Hardware Options
 
 > VRAM math first, then pricing. Don't guess — get this wrong and the model doesn't load.
 
-### VRAM Requirements
+#### VRAM Requirements
 
 | Precision | Bytes/param | Total weights (397B) | Notes |
 |---|---:|---:|---|
@@ -73,7 +199,7 @@ Source: [Qwen3.5-397B-A17B HuggingFace model card](https://huggingface.co/Qwen/Q
 
 > These are **weight-only** estimates. Add KV cache + activations on top. Rule of thumb: weights × 1.15–1.25 total at moderate concurrency.
 
-### Option A — 3× H200 FP8 ✅ Recommended (high perf)
+#### Option A — 3× H200 FP8 ✅ Recommended (high perf)
 
 ```
 3× H200 141GB = 423GB total VRAM
@@ -87,7 +213,7 @@ Cost: 3 × $2,585 = ~$7,755/mo
 
 **Serving:** SGLang `--tp-size 3` or vLLM `--tensor-parallel-size 3`
 
-### Option B — 2× H200 4-bit ⚖️ Budget
+#### Option B — 2× H200 4-bit ⚖️ Budget
 
 ```
 2× H200 141GB = 282GB total VRAM
@@ -101,7 +227,7 @@ Cost: 2 × $2,585 = ~$5,170/mo
 
 **Serving:** vLLM `--tensor-parallel-size 2` with AWQ quantized checkpoint (e.g., `Qwen/Qwen3.5-397B-A17B-AWQ`)
 
-### Option C — 4× H100 4-bit ❌ Skip (expensive for less)
+#### Option C — 4× H100 4-bit ❌ Skip (expensive for less)
 
 ```
 4× H100 80GB = 320GB total VRAM
@@ -113,11 +239,9 @@ Cost: 4 × ~$2,000 = ~$8,000/mo
 
 **Why not:** More expensive than Option A (~$245/mo more) while running 4-bit instead of FP8. Worse quality AND higher cost. Only useful if H200s are unavailable on RunPod.
 
----
+### Serving Setup
 
-## Serving Setup
-
-### SGLang — Recommended
+#### SGLang — Recommended
 
 SGLang exploits MTP for speculative decoding (NEXTN algorithm), giving measurable throughput gains on this model specifically.
 
@@ -149,7 +273,7 @@ python -m sglang.launch_server \
   --speculative-num-draft-tokens 4
 ```
 
-### vLLM
+#### vLLM
 
 ```bash
 # Option A: 3× H200, FP8
@@ -167,7 +291,7 @@ vllm serve Qwen/Qwen3.5-397B-A17B-AWQ \
   --language-model-only
 ```
 
-### Extended context via YaRN (~1M tokens)
+#### Extended context via YaRN (~1M tokens)
 
 ```bash
 VLLM_ALLOW_LONG_MAX_MODEL_LEN=1 vllm serve Qwen/Qwen3.5-397B-A17B \
@@ -179,7 +303,7 @@ VLLM_ALLOW_LONG_MAX_MODEL_LEN=1 vllm serve Qwen/Qwen3.5-397B-A17B \
 
 > YaRN at 1M context is memory-intensive. KV cache at 1M tokens will overflow a 3× H200 setup with any concurrency. Use only for single-request long-doc workloads, scale down `--max-model-len` for production.
 
-### Disable thinking mode per-request
+#### Disable thinking mode per-request
 
 The model defaults to `<think>...</think>` reasoning. Disable for fast, latency-sensitive paths:
 
@@ -192,7 +316,7 @@ response = client.chat.completions.create(
 )
 ```
 
-### LiteLLM config for OpenClaw
+#### LiteLLM Config
 
 No tiers — one model for everything. Map all aliases to the same endpoint:
 
@@ -265,7 +389,7 @@ KV cache ≈ 2 × layers × heads × head_dim × seq_len × batch_size × dtype_
 
 For Qwen3.5-397B at 131K context, 4 concurrent sequences, FP16 KV: roughly **80–120GB** depending on architecture details.
 
-### Practical guidance for Option A (3× H200 FP8)
+### Practical guidance for Option 2A (3× H200 FP8)
 
 | Context length | Concurrent seqs | KV cache est. | Fits in 26GB headroom? |
 |---|---:|---:|---|
@@ -273,7 +397,7 @@ For Qwen3.5-397B at 131K context, 4 concurrent sequences, FP16 KV: roughly **80�
 | 128K | 1–2 | ~40–80GB | ⚠️ reduce `mem-fraction-static` |
 | 262K | 1 | ~80–120GB | ❌ need to reduce weight fraction |
 
-> At 262K context on Option A: lower `--mem-fraction-static` to 0.65–0.70 to give KV cache more room. Accept lower concurrent throughput.
+> At 262K context on Option 2A: lower `--mem-fraction-static` to 0.65–0.70 to give KV cache more room. Accept lower concurrent throughput.
 
 ### Validate before deploying
 
@@ -350,16 +474,18 @@ Sources: https://docs.runpod.io/serverless/pricing · https://www.runpod.io/pric
 
 ## Caveats
 
-**Cost:** $7,755/mo for Option A is ~3× the old 3-tier single-H200 setup. You're paying for having one frontier-tier open-weight model instead of tiered routing. If budget is a hard constraint, the previous 3-tier README is still valid.
+**Option 1 vs Option 2 coding quality:** Qwen3-Coder-Next beats Qwen3.5-397B on SWE-Bench Verified (70.6% vs 68.1%). For pure coding tasks, the cheaper model actually wins. The 397B earns its premium on instruction following, multi-turn agents, and multimodal workloads.
 
-**Benchmark dates:** Qwen3.5-397B benchmarks are from the HuggingFace model card at release. The landscape moves fast — these numbers will be outdated within months.
+**Option 2 cost:** $7,755/mo for Option 2A is ~3× the old 3-tier single-H200 setup. You're paying for having one frontier-tier open-weight model instead of tiered routing.
+
+**Benchmark dates:** Numbers are from model cards at release. The landscape moves fast — these will be outdated within months.
 
 **IFBench / MultiChallenge:** These matter for agent instruction following, but they're not the only thing. Run your own evals on your actual workload before committing.
 
 **Thinking mode overhead:** `<think>...</think>` mode adds latency. For high-throughput agent loops, disable per-request with `enable_thinking=False`. For complex reasoning tasks, leave it on.
 
-**Multi-GPU ops:** Running tensor-parallel across 3 H200s is straightforward on RunPod with NVLink pods. Make sure you request a multi-GPU pod (not 3 separate single-GPU pods) — inter-GPU bandwidth matters.
+**Multi-GPU ops:** Running tensor-parallel across multiple H200s requires a multi-GPU pod (not separate single-GPU pods) — inter-GPU bandwidth matters. Same applies to 2× L40S for Option 1B.
 
-**4-bit quality:** Option B (2× H200, AWQ 4-bit) is measurably lower quality than FP8, but for instruction following specifically the gap is smaller than for coding benchmarks. If your primary use case is agent orchestration (not code generation), Option B is a reasonable tradeoff.
+**4-bit quality:** AWQ 4-bit is measurably lower quality than FP8, but for instruction following specifically the gap is smaller than for coding benchmarks.
 
-**No haiku/sonnet routing:** This setup sends every request to the same model. For workloads where 90% of requests are trivial tool calls that would be faster on a small model, consider whether the throughput of MoE (17B active) is already enough — it often is.
+**No haiku/sonnet routing:** Both options send every request to the same model. For workloads where 90% of requests are trivial tool calls, the MoE active-param count (3B for Option 1, 17B for Option 2) is usually fast enough without tiering.
