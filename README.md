@@ -381,6 +381,84 @@ Sources: https://docs.runpod.io/serverless/pricing · https://www.runpod.io/pric
 
 ---
 
+## Cloud Provider Comparison
+
+> On-demand pricing, Feb 2026. Goal: find the cheapest reliable option for **1–2 GPU inference**.
+
+### Per-GPU/hr Pricing (On-Demand)
+
+| GPU | **Vast.ai** | **RunPod** | **Lambda** | **AWS** | **GCP** | **Azure** |
+|---|---|---|---|---|---|---|
+| **H200 141GB** | $2.19/hr | $3.59/hr | — | ~$4.50–5.00/hr* | — | — |
+| **H100 80GB** | $1.60–1.65/hr | $1.99–2.84/hr | $2.49/hr | $3.90/hr** | $3.00/hr | $6.98/hr |
+| **A100 80GB** | $0.52–0.80/hr | $1.19–1.54/hr | $1.50/hr | $4.10/hr** | — | — |
+| **L40S 48GB** | ~$0.40–0.50/hr | $0.69–0.74/hr | — | — | — | — |
+| **RTX 4090 24GB** | ~$0.20–0.30/hr | $0.68–0.74/hr | — | — | — | — |
+
+\*AWS p5e.48xlarge is 8× H200 only (~$36–40/hr total), per-GPU estimated
+\*\*AWS sells 8-GPU nodes only: p5.48xlarge = $31.21/hr (8× H100), p4d.24xlarge = $32.77/hr (8× A100)
+
+**Notes:**
+- **Vast.ai** is a marketplace — prices fluctuate with supply/demand. Cheapest listings shown; quality and uptime vary.
+- **RunPod** has "community cloud" (cheaper) and "secure cloud" (more reliable) tiers. Prices above are community cloud.
+- **Lambda** pricing is straightforward with zero egress fees, but GPU availability is limited — H100s sell out fast.
+- **AWS/GCP/Azure** require an 8-GPU minimum for H100/H200 — you cannot rent a single GPU.
+- **Thunder Compute** offers H100 at $1.38/hr (emerging provider, worth watching).
+- **VERDA** offers H100 at $0.80/hr and A100 at $0.45/hr (lowest found; less established, caveat emptor).
+
+### Monthly Cost for Our Setups
+
+| Setup | **Vast.ai** | **RunPod** | **Lambda** | **AWS** |
+|---|---|---|---|---|
+| 1× A100 80GB (Coder-Next) | ~$374–576 | ~$857–1,109 | ~$1,080 | ~$2,952*** |
+| 1× H100 80GB (Coder-Next FP8) | ~$1,152–1,188 | ~$1,433–2,045 | ~$1,793 | ~$22,464*** |
+| 1× H200 141GB (M2.5 4-bit) | ~$1,577 | ~$2,585 | — | ~$26–29k*** |
+| 2× H200 141GB (M2.5 FP8) | ~$3,154 | ~$5,170 | — | ~$26–29k*** |
+
+\*\*\*AWS forces 8-GPU nodes — you pay for all 8 to use 1–2. Prices above are the **full node cost** (p5.48xlarge, p5e.48xlarge, p4d.24xlarge). This is not a typo.
+
+### Why Hyperscalers Don't Make Sense for This
+
+#### 1. 8-GPU minimum
+
+AWS, GCP, and Azure sell H100/H200 as full 8-GPU nodes:
+- AWS: `p5.48xlarge` (8× H100 SXM, $31.21/hr), `p5e.48xlarge` (8× H200, ~$36–40/hr), `p4d.24xlarge` (8× A100, $32.77/hr)
+- GCP: `a3-highgpu-8g` (8× H100)
+- Azure: `ND H100 v5` series
+
+If you need 1–2 GPUs, you're paying for 6–7 idle GPUs. At $31/hr for 8× H100, renting "one H100" on AWS costs $3.90/hr equivalent — but you're actually paying for the whole node.
+
+#### 2. Hidden costs
+
+| Cost | AWS | RunPod | Vast.ai |
+|---|---|---|---|
+| **Egress** | $0.09/GB (adds 50–100% to bill at model weight downloads + inference traffic) | Free or minimal | Free or minimal |
+| **Storage IOPS** | Premium for provisioned IOPS (model weights need fast NVMe) | Included in pod pricing | Included |
+| **NAT gateway** | Per-hour + per-GB toll | N/A | N/A |
+| **Minimum billing** | Per-hour minimum | Per-second | Per-second |
+
+A single H200 model download (115GB for M2.5 4-bit) costs $10.35 in AWS egress on the way out. On RunPod or Vast.ai: $0.
+
+#### 3. When hyperscalers make sense
+
+- Enterprise compliance requirements (SOC2, HIPAA, FedRAMP)
+- 8+ GPU training clusters where you fill the whole node
+- Reserved/spot instances at scale with existing AWS credits burning
+- Tight integration with existing AWS infrastructure (VPCs, IAM, etc.)
+
+For **1–2 GPU inference on open-weight models**: none of these apply.
+
+### Recommendation
+
+For our use case (1–2 GPU inference):
+
+- **Best price — Vast.ai**: marketplace rates are 40–60% cheaper than RunPod. Tradeoff: variable quality, machines can vanish, spot-like availability. Use for dev/eval, not production.
+- **Best reliability — RunPod**: consistent pricing, good API (`runpodctl`), secure cloud option for compliance-sensitive use. Default choice for production.
+- **Best for experimenting — Lambda**: clean UX, zero egress fees, straightforward pricing. Downside: GPU availability is tight; H100s frequently unavailable on-demand.
+- **Avoid — AWS/GCP/Azure**: wrong product for this workload. Built for enterprises running full 8-GPU clusters. You'll pay 3–8× more per effective GPU and deal with substantially more billing complexity.
+
+---
+
 ## VRAM Reality Check
 
 <details>
