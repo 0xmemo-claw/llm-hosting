@@ -1,4 +1,5 @@
 .ssh
+.env
 cred.pem
 *.pem
 *.key

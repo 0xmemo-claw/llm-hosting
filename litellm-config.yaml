@@ -23,4 +23,4 @@ litellm_settings:
   num_retries: 2
 
 general_settings:
-  master_key: none
+  master_key: sk-m25-claw-2026
