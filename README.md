@@ -61,19 +61,6 @@ Monthly cost:  ~$1,577/mo (Vast.ai) · ~$2,585/mo (RunPod)
 
 Fits the model cleanly at 4-bit. KV cache is tight — keep `max_model_len` at 32-65K for reliable concurrency. Don't push 196K context on a single H200; you'll OOM. Best for teams with sequential workloads or up to ~5-7 effective concurrent users.
 
-### Alternative: 2× H200 141GB FP8 (if budget allows)
-
-```
-VRAM:        282GB total
-FP8 weights: ~230GB
-KV cache:    ~52GB free
-Context:     80K-100K comfortable
-Throughput:  ~70 tok/s single stream, ~122 tok/s (2 connections)
-Monthly cost: ~$3,154/mo (Vast.ai) · ~$5,170/mo (RunPod)
-```
-
-Full FP8 quality. Meaningfully better throughput and context headroom. The right setup if you can spend the extra $1,500-2,500/mo. Scales to ~10-13 effective concurrent users.
-
 ---
 
 ## Throughput & Economics
@@ -84,10 +71,8 @@ Full FP8 quality. Meaningfully better throughput and context headroom. The right
 |---|---|---:|---:|---|
 | 1× H200 141GB | 4-bit | ~30-40 | ~50-60 (2 streams) | estimated |
 | 1× H200 141GB | Q3_K | ~25 | ~40 (2 streams) | community benchmark |
-| 2× H200 FP8 | FP8 | ~70 | ~122 (2 connections) | community benchmark |
-| 8× RTX Pro 6000 | FP8 | ~70 | ~122 (2 connections) · 9 sessions @200K | community benchmark |
 
-> 8× RTX Pro 6000 can serve ~9 sessions in parallel at full 200K context FP8.
+> Single H200 141GB is the only recommended deployment for M2.5.
 
 ### Cost per 1M Output Tokens
 
@@ -95,8 +80,6 @@ Full FP8 quality. Meaningfully better throughput and context headroom. The right
 |---|---|---:|---:|---:|---:|
 | 1× H200 4-bit | Vast.ai | $2.19 | ~35 | ~$17.39 | ~$35-58 |
 | 1× H200 4-bit | RunPod | $3.59 | ~35 | ~$28.49 | ~$57-95 |
-| 2× H200 FP8 | Vast.ai | $4.38 | ~70 | ~$17.38 | ~$35-58 |
-| 2× H200 FP8 | RunPod | $7.18 | ~70 | ~$28.49 | ~$57-95 |
 
 **Claude API comparison:**
 
@@ -116,8 +99,6 @@ Full FP8 quality. Meaningfully better throughput and context headroom. The right
 |---|---:|---:|---:|
 | 1× H200 4-bit | ~35 | 1-2 | ~5-7 |
 | 1× H200 Q3_K | ~25 | 1 | ~3-5 |
-| 2× H200 FP8 | ~70 | 3-4 | ~10-13 |
-| 8× Pro 6000 FP8 | ~70-122 | ~9 | ~30+ |
 
 ---
 
@@ -136,7 +117,6 @@ vllm serve MiniMaxAI/MiniMax-M2.5 \
 
 > `--tool-call-parser minimax_m2` is required for correct function-calling behavior.
 > `--reasoning-parser deepseek_r1` enables the `reasoning_details` field (interleaved thinking).
-> For 2× H200: set `--tensor-parallel-size 2` and `--max-model-len 98304`.
 
 ### SGLang
 
@@ -205,22 +185,21 @@ vllm serve Qwen/Qwen3-Coder-Next \
   --tensor-parallel-size 1
 ```
 
-### Qwen3-235B-A22B
+### Qwen3-235B-A22B (230B/22B active)
 
-- ✅ Thinking mode
+- ✅ Thinking mode (reasoning_details field)
 - ❌ No vision
-- Slightly lower coding quality than M2.5 (~72-74% SWE-bench)
-- Fits 1× H200 141GB at 4-bit (~118GB)
+- ✅ Slightly lower coding quality than M2.5 (~72-74% SWE-bench)
+- ✅ Fits 1× H200 141GB at 4-bit (~118GB) — **single-machine compatible**
 - Good fallback if M2.5 has availability issues on Vast.ai
 
-### GLM-5 (744B/40B active)
+### GLM-5 (744B/40B active) — API Only
 
 - ✅ Thinking + Vision
 - ✅ 77.8% SWE-Bench Verified
 - ❌ Needs 8× H100 minimum (~$15k+/mo to self-host)
+- ❌ **Not single-machine compatible** — requires 8-GPU cluster
 - Use via API only at our budget (OpenRouter, Vertex AI, BigModel)
-
-Don't self-host GLM-5 unless you have an existing 8-GPU cluster. At $5.2k/mo you could run M2.5 FP8 (2× H200) with better SWE-bench scores. GLM-5 API is the move.
 
 ---
 
@@ -256,7 +235,6 @@ Don't self-host GLM-5 unless you have an existing 8-GPU cluster. At $5.2k/mo you
 | 1× A100 80GB (Coder-Next) | ~$374–576 | ~$857–1,109 | ~$1,080 | ~$2,952*** |
 | 1× H100 80GB (Coder-Next FP8) | ~$1,152–1,188 | ~$1,433–2,045 | ~$1,793 | ~$22,464*** |
 | 1× H200 141GB (M2.5 4-bit) | ~$1,577 | ~$2,585 | — | ~$26–29k*** |
-| 2× H200 141GB (M2.5 FP8) | ~$3,154 | ~$5,170 | — | ~$26–29k*** |
 
 \*\*\*AWS forces 8-GPU nodes — you pay for all 8 to use 1–2. Prices above are the **full node cost** (p5.48xlarge, p5e.48xlarge, p4d.24xlarge). This is not a typo.
 
@@ -431,10 +409,8 @@ watch -n 2 nvidia-smi --query-gpu=memory.used,memory.free --format=csv,noheader
 
 **No vision:** M2.5 is text/code only. If you need vision later, add Qwen2.5-VL-72B on a separate A100 (~$857-1,109/mo) as a sidecar. LiteLLM can route vision requests to it transparently.
 
-**4-bit quality:** AWQ/GGUF 4-bit is measurably lower quality than FP8. On a 230B model the gap is more pronounced than on 80B models. Prefer FP8 (2× H200) if budget allows — the SWE-bench delta is real.
+**4-bit quality:** AWQ/GGUF 4-bit is measurably lower quality than FP8. On a 230B model the gap is more pronounced than on 80B models. The ~$1,577/mo (Vast.ai) / ~$2,585/mo (RunPod) pricing reflects 4-bit deployment.
 
 **Benchmark dates:** Numbers from model cards at release. This landscape moves fast. Run your own evals on your actual codebase before committing.
 
 **Throughput numbers:** Community benchmarks vary by batch size, context length, prompt structure, and GPU state. Treat all tok/s estimates as order-of-magnitude guidance, not SLAs.
-
-**Multi-GPU ops:** Tensor-parallel across multiple GPUs requires a multi-GPU pod (not separate single-GPU pods) — inter-GPU NVLink bandwidth is critical. Verify NVLink availability on RunPod pods before ordering.
