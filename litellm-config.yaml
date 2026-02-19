@@ -1,0 +1,22 @@
+model_list:
+  - model_name: haiku
+    litellm_params:
+      model: openai/QuantTrio/MiniMax-M2.5-AWQ
+      api_base: http://localhost:8000/v1
+      api_key: none
+
+  - model_name: sonnet
+    litellm_params:
+      model: openai/QuantTrio/MiniMax-M2.5-AWQ
+      api_base: http://localhost:8000/v1
+      api_key: none
+
+  - model_name: opus
+    litellm_params:
+      model: openai/QuantTrio/MiniMax-M2.5-AWQ
+      api_base: http://localhost:8000/v1
+      api_key: none
+
+litellm_settings:
+  drop_params: true
+  set_verbose: false

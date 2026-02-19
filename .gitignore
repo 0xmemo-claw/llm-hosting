@@ -1,0 +1,5 @@
+.ssh
+cred.pem
+*.pem
+*.key
+models/
