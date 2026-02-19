@@ -117,22 +117,6 @@ curl http://localhost:8000/v1/chat/completions \
 
 ---
 
-## LiteLLM Integration
-
-llama-server's API is OpenAI-compatible, so LiteLLM works the same as with vLLM:
-
-```bash
-pip install 'litellm[proxy]'
-```
-
-Use the same `litellm-config.yaml` from the root of this repo, then:
-
-```bash
-litellm --config litellm-config.yaml --port 8001 &
-```
-
----
-
 ## Context Length Comparison on H200
 
 With UD-Q3_K_XL (~101 GiB weights) on a 141 GiB H200:

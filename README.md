@@ -92,7 +92,8 @@ vllm serve QuantTrio/MiniMax-M2.5-AWQ \
   --cpu-offload-gb 50 --max-num-seqs 4 \
   --enable-auto-tool-choice --tool-call-parser minimax_m2 \
   --reasoning-parser minimax_m2_append_think \
-  --download-dir /workspace/models --host 0.0.0.0 --port 8000
+  --download-dir /workspace/models --host 0.0.0.0 --port 8001 \
+  --api-key $M25_API_KEY
 ```
 
 ### Unsloth / llama.cpp (128K context)
@@ -182,8 +183,6 @@ Vast.ai's Caddy proxy intercepts port 8000 with cookie-based auth that breaks SD
 |------|---------|
 | [`deploy.md`](deploy.md) | Full AWQ/vLLM deployment guide (tested, 65K context) |
 | [`unsloth.md`](unsloth.md) | Unsloth GGUF / llama.cpp guide (128K+ context) |
-| [`docker-compose.yml`](docker-compose.yml) | Docker Compose for vLLM + LiteLLM |
-| [`litellm-config.yaml`](litellm-config.yaml) | LiteLLM proxy config (haiku/sonnet/opus aliases) |
 | [`endpoints.yaml`](endpoints.yaml) | Public tunnel URLs and client config examples |
 | [`.env.example`](.env.example) | Template for API credentials (copy to `.env`) |
 
