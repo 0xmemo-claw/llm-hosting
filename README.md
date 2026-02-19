@@ -1,177 +1,172 @@
-# LLM Hosting — Open-Weight Coding Models
+# LLM Hosting — MiniMax M2.5 Single-Machine Deployment
 
 ## TL;DR
 
-**For most teams:** Run **Qwen3-Coder-Next** on 1× A100 80GB (~$857–1,109/mo) or 2× L40S (~$1,000–1,066/mo). Best coding quality per dollar in open-weight. If you need the absolute highest SWE-Bench score and can spend $2.6–5.2k/mo, go **MiniMax M2.5**. Forget self-hosting **GLM-5** — it needs 8× H100 minimum; use the API.
+**MiniMax M2.5 on 1× H200 141GB** (~$1,577/mo Vast.ai, ~$2,585/mo RunPod). 80.2% SWE-Bench Verified — #1 open-weight coding score. Interleaved thinking. Single GPU. Apache 2.0. Done.
 
 ---
 
-## Model Landscape
+## Why MiniMax M2.5
 
-| | **Qwen3-Coder-Next** | **MiniMax M2.5** | **GLM-5** |
-|---|---|---|---|
-| **Total params** | 80B | 230B | 744B |
-| **Active params** | 3B | 10B | 40B |
-| **Architecture** | MoE hybrid (Gated DeltaNet + GDA + MoE) | MoE | MoE (MLA + DSA) |
-| **SWE-Bench Verified** | 70.6% | **80.2% 🥇** | 77.8% |
-| **BrowseComp** | — | **76.3%** | — |
-| **Context** | 256K | 196K | 203K |
-| **License** | Apache 2.0 | Apache 2.0 | Open weight (check license) |
-| **VRAM (FP8)** | ~80GB | ~230GB | ~800GB |
-| **VRAM (4-bit)** | ~40–46GB | ~115GB | ~370GB |
-| **VRAM (Q3_K)** | — | ~101GB | ~241GB |
-| **Min GPU (practical)** | 1× A100 80GB | 1× H200 141GB (4-bit) | 8× H100 80GB |
-| **Min $/mo (self-hosted)** | **~$857** | ~$2,585 | ~$15,000+ |
-| **Fits team budget?** | ✅ Yes | ✅ Yes (if $2.6–5.2k/mo OK) | ❌ API only |
+### Specs
+
+| | **MiniMax M2.5** |
+|---|---|
+| **Total params** | 230B |
+| **Active params** | 10B |
+| **Architecture** | MoE |
+| **Context** | 196K |
+| **License** | Apache 2.0 |
+| **VRAM (FP8)** | ~230GB |
+| **VRAM (4-bit)** | ~115GB |
+| **VRAM (Q3_K)** | ~101GB |
+| **Min GPU (practical)** | 1× H200 141GB (4-bit) |
+| **Min $/mo (self-hosted)** | ~$1,577 (Vast.ai) |
+
+### Benchmarks
+
+| Benchmark | **MiniMax M2.5** | Claude Opus 4.6 | GPT-5.2 | Gemini-3 Pro |
+|---|---|---|---|---|
+| **SWE-Bench Verified** | **80.2% 🥇** | ~72% | ~70% | ~68% |
+| **BrowseComp** | **76.3%** | — | — | — |
+| **Multi-SWE-Bench** | **51.3%** | — | — | — |
+
+> SWE-Bench Verified: M2.5 holds the #1 open-weight position. 37% faster than M2.1 on SWE-bench, matching Claude Opus 4.6 speed.
+
+### Why Thinking Mode Matters
+
+M2.5 supports **interleaved thinking** — reasoning is emitted as a separate `reasoning_details` field alongside the main response. Unlike chain-of-thought prompting:
+
+- Thinking state is **maintained across tool calls** — the model remembers its reasoning across an agentic loop
+- **Task decomposition is built-in** — the model plans, executes, checks, and revises without prompting
+- Reasoning details don't pollute the response stream — clean separation of thinking vs. output
+- Works natively with vLLM's `--reasoning-parser deepseek_r1` flag
+
+This matters for coding agents. A model that plans before patching and reasons across multi-step tool use is categorically different from a model that just completes tokens. That's why M2.5 hits 80.2% on SWE-bench.
+
+---
+
+## Hardware
+
+### Recommended: 1× H200 141GB
+
+```
+VRAM:          141GB total
+4-bit weights: ~115GB
+KV cache:      ~26GB free
+Context:       comfortable 32-64K, up to 196K with careful tuning
+Throughput:    ~30-40 tok/s single stream, ~50-60 tok/s (2 streams)
+Monthly cost:  ~$1,577/mo (Vast.ai) · ~$2,585/mo (RunPod)
+```
+
+Fits the model cleanly at 4-bit. KV cache is tight — keep `max_model_len` at 32-65K for reliable concurrency. Don't push 196K context on a single H200; you'll OOM. Best for teams with sequential workloads or up to ~5-7 effective concurrent users.
+
+### Alternative: 2× H200 141GB FP8 (if budget allows)
+
+```
+VRAM:        282GB total
+FP8 weights: ~230GB
+KV cache:    ~52GB free
+Context:     80K-100K comfortable
+Throughput:  ~70 tok/s single stream, ~122 tok/s (2 connections)
+Monthly cost: ~$3,154/mo (Vast.ai) · ~$5,170/mo (RunPod)
+```
+
+Full FP8 quality. Meaningfully better throughput and context headroom. The right setup if you can spend the extra $1,500-2,500/mo. Scales to ~10-13 effective concurrent users.
 
 ---
 
 ## Throughput & Economics
 
-### Tokens per Second (measured)
+### Tokens per Second
 
-> Sources noted inline. "Estimated" = extrapolated from comparable hardware.
+| Setup | Precision | tok/s (single stream) | tok/s (multi-stream) | Source |
+|---|---|---:|---:|---|
+| 1× H200 141GB | 4-bit | ~30-40 | ~50-60 (2 streams) | estimated |
+| 1× H200 141GB | Q3_K | ~25 | ~40 (2 streams) | community benchmark |
+| 2× H200 FP8 | FP8 | ~70 | ~122 (2 connections) | community benchmark |
+| 8× RTX Pro 6000 | FP8 | ~70 | ~122 (2 connections) · 9 sessions @200K | community benchmark |
 
-| Model | Setup | Precision | tok/s | Source |
-|---|---|---|---:|---|
-| Qwen3-Coder-Next | 1× H100 80GB | FP8 | ~120 | community benchmark |
-| Qwen3-Coder-Next | 1× A100 80GB | 4-bit | ~50 | estimated |
-| Qwen3-Coder-Next | 2× L40S 48GB (TP=2) | 4-bit | ~80 | estimated |
-| Qwen3-Coder-Next | DGX Spark (single node) | 4-bit | ~44 | community benchmark |
-| MiniMax M2.5 | 8× RTX Pro 6000 48GB | FP8 | ~70 (single stream) | community benchmark |
-| MiniMax M2.5 | 8× RTX Pro 6000 48GB | FP8 | ~122 (2 connections) | community benchmark |
-| MiniMax M2.5 | FelloAI deployment | FP8 | ~100 | vendor claim |
-| MiniMax M2.5 | 1× H200 141GB | Q3_K | ~25 | community benchmark |
-| MiniMax M2.5 | 1× H200 141GB | 4-bit | ~30–40 | estimated |
-| GLM-5 | 8× H100 80GB | FP8 | ~30–50 | estimated |
-
-> MiniMax M2.5 on 8× RTX Pro 6000 can serve **~9 sessions in parallel** at full 200K context (FP8).
+> 8× RTX Pro 6000 can serve ~9 sessions in parallel at full 200K context FP8.
 
 ### Cost per 1M Output Tokens
 
-> Based on RunPod pod pricing. GPU cost ÷ (tok/s × 3600) × 1,000,000.
+| Setup | Provider | $/hr | tok/s | $/M @ 100% | $/M real-world (30-50%) |
+|---|---|---:|---:|---:|---:|
+| 1× H200 4-bit | Vast.ai | $2.19 | ~35 | ~$17.39 | ~$35-58 |
+| 1× H200 4-bit | RunPod | $3.59 | ~35 | ~$28.49 | ~$57-95 |
+| 2× H200 FP8 | Vast.ai | $4.38 | ~70 | ~$17.38 | ~$35-58 |
+| 2× H200 FP8 | RunPod | $7.18 | ~70 | ~$28.49 | ~$57-95 |
 
-| Setup | $/hr | tok/s | $/M @ 100% util | $/M real-world (30–50% util) |
-|---|---:|---:|---:|---:|
-| Coder-Next — 1× A100 4-bit | $1.19 | ~50 | ~$6.61 | ~$13–22 |
-| Coder-Next — 2× L40S TP=2 | $1.38 | ~80 | ~$4.79 | ~$10–16 |
-| M2.5 — 1× H200 4-bit | $3.59 | ~35 | ~$28.49 | ~$57–95 |
-| M2.5 — 2× H200 FP8 | $7.18 | ~70 | ~$28.49 | ~$57–95 |
-| GLM-5 — 8× H100 FP8 | ~$21.50 | ~40 | ~$149 | ~$298–498 |
-| — | — | — | — | — |
-| **Claude API comparison** | | | | |
-| Sonnet 4.5 (API) | — | — | $15/M output | — |
-| Opus 4.6 (API) | — | — | $75/M output | — |
-| Haiku 4.5 (API) | — | — | $1.25/M output | — |
+**Claude API comparison:**
 
-> **Verdict:** Coder-Next on 2× L40S at $4.79–16/M output is cheaper than Haiku 4.5 API at heavy use. M2.5 at $28–95/M output sits between Sonnet and Opus API pricing. GLM-5 self-hosted is never economical.
+| Tier | $/M output |
+|---|---:|
+| Opus 4.6 | $75 |
+| Sonnet 4.5 | $15 |
+| Haiku 4.5 | $1.25 |
 
-### Concurrent Usage
+> **Verdict:** M2.5 at $35-95/M output (real-world) sits between Sonnet and Opus API pricing — but beats both on SWE-Bench Verified. At heavy sustained use, self-hosting pays off fast.
+
+### Concurrent Users
 
 > Assumes 20 tok/s per active stream; 70% of users idle at any moment.
 
 | Setup | tok/s | Active streams | Effective users (70% idle) |
 |---|---:|---:|---:|
-| 1× A100 — Coder-Next 4-bit | ~50 | 2–3 | ~7–10 |
-| 2× L40S — Coder-Next TP=2 | ~80 | 3–4 | ~10–13 |
-| 1× H200 — M2.5 4-bit | ~35 | 1–2 | ~5–7 |
-| 2× H200 — M2.5 FP8 | ~70 | 3–4 | ~10–13 |
-| 8× H100 — GLM-5 FP8 | ~40 | 2 | ~7 |
+| 1× H200 4-bit | ~35 | 1-2 | ~5-7 |
+| 1× H200 Q3_K | ~25 | 1 | ~3-5 |
+| 2× H200 FP8 | ~70 | 3-4 | ~10-13 |
+| 8× Pro 6000 FP8 | ~70-122 | ~9 | ~30+ |
 
 ---
 
-## Recommendation: Qwen3-Coder-Next
+## Serving Setup
 
-**70.6% SWE-Bench Verified. Best coding value per dollar. Fits one GPU.**
-
-- 80B total / 3B active (sparse MoE — throughput of a 3B, quality of 80B)
-- 256K context (native, extendable)
-- Fits on a single A100 80GB or 2× L40S at 4-bit — no multi-machine complexity
-- Apache 2.0
-
-### VRAM
-
-| Precision | VRAM | Notes |
-|---|---:|---|
-| FP8 | ~80GB | Fits H100 80GB — no KV room. Not recommended. |
-| 4-bit | ~40–46GB | Fits A100 80GB with ~34GB KV. **Use this.** |
-
-### Hardware Options
-
-**Option A — 1× A100 80GB (~$857–1,109/mo) ✅ Best value**
-
-```
-VRAM:        80GB total
-4-bit weights: ~46GB
-KV cache:    ~34GB free
-Context:     comfortable 32K, up to ~64K with care
-Concurrency: 1–2 requests, ~7–10 effective users
-```
-
-Cheapest serious option. Solo team or small squad doing sequential coding tasks. This is the default call.
-
-**Option B — 2× L40S 48GB (~$1,000–1,066/mo) ✅ More throughput**
-
-```
-VRAM:        96GB total (2× 48GB)
-4-bit weights: ~46GB split across 2 GPUs
-KV cache:    ~50GB combined free
-Context:     65K+ comfortable
-Concurrency: 3–4 requests, ~10–13 effective users
-```
-
-~$150–200/mo more than a single A100. Worth it for teams with multiple concurrent users or longer context needs. Better tok/s (est. ~80) than a single A100 (~50).
-
-**Option C — 1× H100 80GB (~$1,937–2,045/mo) ⚠️ Over budget for this model**
-
-```
-VRAM:        80GB total
-FP8 weights: ~80GB (no KV room)
-4-bit weights: ~46GB with ~34GB KV
-```
-
-Faster than A100 (HBM3), but ~2× the cost. The performance gain on Coder-Next doesn't justify it — you could upgrade to M2.5 instead for a comparable spend. Only pick this if H200s and A100s are both unavailable.
-
-### Serving
-
-**Option A — 1× A100 (single GPU):**
+### vLLM (recommended)
 
 ```bash
-vllm serve Qwen/Qwen3-Coder-Next \
-  --max-model-len 32768 \
-  --gpu-memory-utilization 0.90 \
-  --tensor-parallel-size 1
-```
-
-**Option B — 2× L40S (TP=2):**
-
-```bash
-vllm serve Qwen/Qwen3-Coder-Next \
+vllm serve MiniMaxAI/MiniMax-M2.5 \
   --max-model-len 65536 \
   --gpu-memory-utilization 0.90 \
-  --tensor-parallel-size 2
+  --tensor-parallel-size 1 \
+  --tool-call-parser minimax_m2 \
+  --reasoning-parser deepseek_r1
+```
+
+> `--tool-call-parser minimax_m2` is required for correct function-calling behavior.
+> `--reasoning-parser deepseek_r1` enables the `reasoning_details` field (interleaved thinking).
+> For 2× H200: set `--tensor-parallel-size 2` and `--max-model-len 98304`.
+
+### SGLang
+
+```bash
+python -m sglang.launch_server \
+  --model-path MiniMaxAI/MiniMax-M2.5 \
+  --tp-size 1 \
+  --mem-fraction-static 0.85 \
+  --context-length 65536
 ```
 
 ### LiteLLM Config
 
 ```yaml
-# litellm_config.yaml
 model_list:
   - model_name: haiku
     litellm_params:
-      model: openai/qwen3-coder-next
+      model: openai/minimax-m2.5
       api_base: http://localhost:8001/v1
       api_key: none
 
   - model_name: sonnet
     litellm_params:
-      model: openai/qwen3-coder-next
+      model: openai/minimax-m2.5
       api_base: http://localhost:8001/v1
       api_key: none
 
   - model_name: opus
     litellm_params:
-      model: openai/qwen3-coder-next
+      model: openai/minimax-m2.5
       api_base: http://localhost:8001/v1
       api_key: none
 
@@ -187,197 +182,45 @@ litellm --config litellm_config.yaml --port 8000
 **OpenClaw integration:**
 - `base_url`: `http(s)://<host>:8000/v1`
 - `api_key`: LiteLLM `master_key` (if set)
-- Model aliases: `haiku`, `sonnet`, `opus` → all route to Coder-Next
+- Model aliases: `haiku`, `sonnet`, `opus` → all route to M2.5
 
 ---
 
-## Alternative: MiniMax M2.5
+## Alternatives (Reference Only)
 
-**80.2% SWE-Bench Verified — highest open-weight coding score. Also 76.3% BrowseComp (agentic). Pay $2.6–5.2k/mo for the quality jump.**
+### Qwen3-Coder-Next (80B/3B active)
 
-- 230B total / 10B active (MoE)
-- 196K context
-- Apache 2.0
-- Notable: "spec-writing tendency" — model tends to plan/outline structure before writing code. Works well for greenfield features, less ideal for surgical patches.
+- ❌ No thinking mode
+- ❌ No vision
+- ✅ 70.6% SWE-Bench Verified — solid second place
+- ✅ Fits 1× A100 80GB at 4-bit (~$374-1,109/mo)
+- ✅ Best value/$ for pure coding
 
-### VRAM
-
-| Precision | VRAM | Notes |
-|---|---:|---|
-| FP8 | ~230GB | 2× H200 minimum (barely), 4× H100 for headroom |
-| 4-bit | ~115GB | 1× H200 141GB (fits) |
-| Q3_K | ~101GB | 1× H200 141GB (fits, heavy quant) |
-
-> Community reports: peak 728GB observed on 8× RTX Pro 6000 at full 200K context FP8. Plan accordingly.
-
-### Hardware Options
-
-**Option A — 1× H200 141GB 4-bit (~$2,585/mo) ✅ Entry point**
-
-```
-VRAM:        141GB total
-4-bit weights: ~115GB
-KV cache:    ~26GB free
-Context:     tight — keep max_model_len ≤ 32K for reliable concurrency
-Concurrency: 1–2 requests, ~5–7 effective users
-Throughput:  ~30–40 tok/s (estimated)
-```
-
-Fits. KV cache is tight. Fine for teams with sequential workloads. Don't push 196K context here — you'll OOM.
-
-**Option B — 2× H200 141GB FP8 (~$5,170/mo) ✅ Recommended for M2.5**
-
-```
-VRAM:        282GB total
-FP8 weights: ~230GB
-KV cache:    ~52GB free
-Context:     80K–100K comfortable
-Concurrency: 3–4 requests, ~10–13 effective users
-Throughput:  ~70 tok/s (community benchmark, FP8)
-```
-
-Full FP8 quality. Meaningfully better throughput than the 4-bit option. This is the right setup if you're choosing M2.5.
-
-**Option C — 4× H100 80GB FP8 (~$7,700–8,200/mo) ❌ Skip**
-
-More expensive than 2× H200 for effectively the same setup. H200 has larger VRAM per GPU and better bandwidth. Pass unless H200 isn't available.
-
-### Serving
+Pick this if you **only** need coding and want to minimize cost. You'll run at ~$857-1,109/mo (RunPod) vs. $2,585/mo for M2.5, but you give up thinking mode and ~10 SWE-bench points.
 
 ```bash
-# Option A: 1× H200, 4-bit (use a quantized checkpoint)
-vllm serve MiniMaxAI/MiniMax-M2.5 \
+vllm serve Qwen/Qwen3-Coder-Next \
   --max-model-len 32768 \
-  --gpu-memory-utilization 0.85 \
-  --tensor-parallel-size 1 \
-  --tool-call-parser minimax_m2
-
-# Option B: 2× H200, FP8
-vllm serve MiniMaxAI/MiniMax-M2.5 \
-  --max-model-len 98304 \
-  --gpu-memory-utilization 0.88 \
-  --tensor-parallel-size 2 \
-  --tool-call-parser minimax_m2
+  --gpu-memory-utilization 0.90 \
+  --tensor-parallel-size 1
 ```
 
-> `--tool-call-parser minimax_m2` is required for correct function-calling behavior with M2.5.
+### Qwen3-235B-A22B
 
-### LiteLLM Config
+- ✅ Thinking mode
+- ❌ No vision
+- Slightly lower coding quality than M2.5 (~72-74% SWE-bench)
+- Fits 1× H200 141GB at 4-bit (~118GB)
+- Good fallback if M2.5 has availability issues on Vast.ai
 
-```yaml
-model_list:
-  - model_name: haiku
-    litellm_params:
-      model: openai/minimax-m2.5
-      api_base: http://localhost:8001/v1
-      api_key: none
+### GLM-5 (744B/40B active)
 
-  - model_name: sonnet
-    litellm_params:
-      model: openai/minimax-m2.5
-      api_base: http://localhost:8001/v1
-      api_key: none
+- ✅ Thinking + Vision
+- ✅ 77.8% SWE-Bench Verified
+- ❌ Needs 8× H100 minimum (~$15k+/mo to self-host)
+- Use via API only at our budget (OpenRouter, Vertex AI, BigModel)
 
-  - model_name: opus
-    litellm_params:
-      model: openai/minimax-m2.5
-      api_base: http://localhost:8001/v1
-      api_key: none
-
-litellm_settings:
-  drop_params: true
-  set_verbose: false
-```
-
----
-
-## Reference: GLM-5
-
-**77.8% SWE-Bench Verified. 744B/40B active. Don't self-host. Use the API.**
-
-GLM-5 uses MLA + DeepSeek Sparse Attention (DSA) for efficient KV cache — smart architecture, but it doesn't change the economics. 744B total params means you need enormous GPU clusters.
-
-### VRAM
-
-| Precision | VRAM | Practical setup |
-|---|---:|---|
-| BF16 | ~1.5TB | 12× H100 80GB minimum |
-| FP8 | ~800GB | 8× H100 80GB (barely) or 6× H200 |
-| 4-bit | ~370GB | 3× H200 or 5× H100 |
-| Q3_K | ~241GB | 2× H200 (~282GB — barely fits) |
-
-### Self-Hosting Costs (all painful)
-
-| Setup | $/mo | Quality | Verdict |
-|---|---:|---|---|
-| 8× H100 FP8 | ~$15,000–16,000 | Full | ❌ Way over budget |
-| 2× H200 Q3_K | ~$5,170 | Degraded | ❌ Heavy quant, marginal fit, questionable quality |
-| 6× H200 FP8 | ~$15,510 | Full | ❌ Ridiculous |
-
-At $5.2k/mo you could run M2.5 FP8 (2× H200) and get 80.2% SWE-Bench with full quality. GLM-5 Q3_K at the same cost is worse quality, barely fits, and scores 77.8%. There's no case for self-hosting GLM-5 under $15k/mo.
-
-### API Access (use this instead)
-
-| Provider | Notes |
-|---|---|
-| **OpenRouter** | Available under `thudm/glm-z1-32b` and GLM-5 variants |
-| **Vertex AI** | GLM-5 via Model Garden |
-| **BigModel** | First-party ZhipuAI platform — best SLA for GLM models |
-
-Use GLM-5 via API when you need its specific capabilities (long-context, DSA efficiency) without the hosting overhead.
-
----
-
-## RunPod Pricing
-
-<details>
-<summary><strong>Pods + Serverless pricing tables (expand)</strong></summary>
-
-### Pods (on-demand)
-
-> Typical range = min–median from RunPod pricing + community snapshots.
-
-| GPU | On-demand $/hr | $/30d |
-|---|---:|---:|
-| **H200 141GB** | $3.59 | **$2,585** |
-| **H100 80GB** | $2.69–$2.84 | **$1,937–$2,045** |
-| **A100 80GB** | $1.19–$1.54 | **$857–$1,109** |
-| **L40S 48GB** | $0.69–$0.74 | **$497–$533** |
-| **RTX 4090 24GB** | $0.68–$0.74 | **$490–$533** |
-
-Sources (checked 2026-02-18):
-- https://www.runpod.io/gpu-pricing
-- https://compute.hivenet.com/post/runpod-pricing-complete-guide-to-gpu-cloud-costs-in-2025
-
-### Serverless — Flex pricing (upper bound)
-
-> RunPod Serverless Flex = upper-bound proxy for interruptible/spot economics. Not the same as always-on pods.
-
-| GPU | $/s | $/hr | $/day | $/30d |
-|---|---:|---:|---:|---:|
-| **B200 180GB** | $0.00240 | $8.64 | $207.36 | $6,221 |
-| **H200 141GB** | $0.00155 | $5.58 | $133.92 | $4,018 |
-| **H100 80GB** | $0.00116 | $4.18 | $100.22 | $3,007 |
-| **A100 80GB** | $0.00076 | $2.74 | $65.66 | $1,970 |
-| **48GB (L40/L40S/6000 Ada)** | $0.00053 | $1.91 | $45.79 | $1,374 |
-| **24GB (RTX 4090)** | $0.00031 | $1.12 | $26.78 | $804 |
-| **24GB (L4/A5000/3090)** | $0.00019 | $0.68 | $16.42 | $492 |
-
-### Serverless — Active pricing
-
-| GPU | $/s | $/hr | $/day | $/30d |
-|---|---:|---:|---:|---:|
-| **B200 180GB** | $0.00190 | $6.84 | $164.16 | $4,925 |
-| **H200 141GB** | $0.00124 | $4.46 | $107.14 | $3,214 |
-| **H100 80GB** | $0.00093 | $3.35 | $80.35 | $2,411 |
-| **A100 80GB** | $0.00060 | $2.16 | $51.84 | $1,555 |
-| **48GB (L40/L40S/6000 Ada)** | $0.00037 | $1.33 | $31.97 | $959 |
-| **24GB (RTX 4090)** | $0.00021 | $0.76 | $18.14 | $544 |
-| **24GB (L4/A5000/3090)** | $0.00013 | $0.47 | $11.23 | $337 |
-
-Sources: https://docs.runpod.io/serverless/pricing · https://www.runpod.io/pricing
-
-</details>
+Don't self-host GLM-5 unless you have an existing 8-GPU cluster. At $5.2k/mo you could run M2.5 FP8 (2× H200) with better SWE-bench scores. GLM-5 API is the move.
 
 ---
 
@@ -459,23 +302,86 @@ For our use case (1–2 GPU inference):
 
 ---
 
+## RunPod Pricing
+
+<details>
+<summary><strong>Pods + Serverless pricing tables (expand)</strong></summary>
+
+### Pods (on-demand)
+
+> Typical range = min–median from RunPod pricing + community snapshots.
+
+| GPU | On-demand $/hr | $/30d |
+|---|---:|---:|
+| **H200 141GB** | $3.59 | **$2,585** |
+| **H100 80GB** | $2.69–$2.84 | **$1,937–$2,045** |
+| **A100 80GB** | $1.19–$1.54 | **$857–$1,109** |
+| **L40S 48GB** | $0.69–$0.74 | **$497–$533** |
+| **RTX 4090 24GB** | $0.68–$0.74 | **$490–$533** |
+
+Sources (checked 2026-02-18):
+- https://www.runpod.io/gpu-pricing
+- https://compute.hivenet.com/post/runpod-pricing-complete-guide-to-gpu-cloud-costs-in-2025
+
+### Serverless — Flex pricing (upper bound)
+
+> RunPod Serverless Flex = upper-bound proxy for interruptible/spot economics. Not the same as always-on pods.
+
+| GPU | $/s | $/hr | $/day | $/30d |
+|---|---:|---:|---:|---:|
+| **B200 180GB** | $0.00240 | $8.64 | $207.36 | $6,221 |
+| **H200 141GB** | $0.00155 | $5.58 | $133.92 | $4,018 |
+| **H100 80GB** | $0.00116 | $4.18 | $100.22 | $3,007 |
+| **A100 80GB** | $0.00076 | $2.74 | $65.66 | $1,970 |
+| **48GB (L40/L40S/6000 Ada)** | $0.00053 | $1.91 | $45.79 | $1,374 |
+| **24GB (RTX 4090)** | $0.00031 | $1.12 | $26.78 | $804 |
+| **24GB (L4/A5000/3090)** | $0.00019 | $0.68 | $16.42 | $492 |
+
+### Serverless — Active pricing
+
+| GPU | $/s | $/hr | $/day | $/30d |
+|---|---:|---:|---:|---:|
+| **B200 180GB** | $0.00190 | $6.84 | $164.16 | $4,925 |
+| **H200 141GB** | $0.00124 | $4.46 | $107.14 | $3,214 |
+| **H100 80GB** | $0.00093 | $3.35 | $80.35 | $2,411 |
+| **A100 80GB** | $0.00060 | $2.16 | $51.84 | $1,555 |
+| **48GB (L40/L40S/6000 Ada)** | $0.00037 | $1.33 | $31.97 | $959 |
+| **24GB (RTX 4090)** | $0.00021 | $0.76 | $18.14 | $544 |
+| **24GB (L4/A5000/3090)** | $0.00013 | $0.47 | $11.23 | $337 |
+
+Sources: https://docs.runpod.io/serverless/pricing · https://www.runpod.io/pricing
+
+</details>
+
+---
+
 ## VRAM Reality Check
 
 <details>
-<summary><strong>How vLLM/SGLang use GPU memory (expand)</strong></summary>
+<summary><strong>M2.5 memory breakdown (expand)</strong></summary>
 
 GPU memory = **weights + KV cache + activations + overhead**. Quantization only shrinks weights.
 
-### Weight memory (rule of thumb)
+### Weight memory at different precisions
 
-| Precision | Bytes/param | Coder-Next (80B) | M2.5 (230B) | GLM-5 (744B) |
-|---|---:|---:|---:|---:|
-| BF16 | 2 | ~160GB | ~460GB | ~1,488GB |
-| FP8 | 1 | ~80GB | ~230GB | ~744GB |
-| 4-bit | 0.5 | ~40GB | ~115GB | ~372GB |
-| Q3_K | ~0.375 | ~30GB | ~86GB | ~279GB |
+| Precision | Bytes/param | M2.5 (230B) |
+|---|---:|---:|
+| BF16 | 2 | ~460GB |
+| FP8 | 1 | ~230GB |
+| 4-bit | 0.5 | ~115GB |
+| Q3_K | ~0.375 | ~86-101GB |
 
-> For MoE models: only active params run computation, but **all expert weights must be loaded into VRAM**. You load the full model, compute with a fraction. No shortcut.
+### The MoE trap
+
+M2.5 has 230B total parameters but only 10B active per forward pass (MoE routing). This does **not** mean you only load 10B into VRAM. You load all 230B expert weights into GPU memory; MoE routing selects which 10B to activate for each token. No VRAM shortcut.
+
+At 4-bit:
+- Weights: ~115GB
+- Activations: ~2-3GB (only 10B active, low activation memory)
+- KV cache: depends on context × concurrency (see below)
+- Overhead: ~3-5GB
+
+On a 141GB H200: 115 + 3 + ~20 (KV) + 4 = **~142GB** — barely fits at 32K context. Push to 65K and you need tight `gpu-memory-utilization` tuning.
 
 ### KV cache grows with context × concurrency
 
@@ -483,22 +389,31 @@ GPU memory = **weights + KV cache + activations + overhead**. Quantization only 
 KV cache ≈ 2 × layers × heads × head_dim × seq_len × batch_size × dtype_bytes
 ```
 
-A rough rule: assume 0.5–1GB per 1K tokens per concurrent sequence for large MoE models. At 32K context, 4 concurrent sequences ≈ 64–128GB KV cache.
+Rough rule for M2.5: ~0.5-1GB per 1K tokens per concurrent sequence. At 32K context, 1 concurrent sequence ≈ 16-32GB KV. The remaining ~26GB on a 141GB H200 (after 115GB weights) is tight for anything beyond 1-2 sequences.
 
-### Validate before deploying
+### Practical guidance for 1× H200
 
 ```bash
-nvidia-smi --query-gpu=name,memory.total --format=csv,noheader
+# Safe starting point — 32K context, high GPU util
+vllm serve MiniMaxAI/MiniMax-M2.5 \
+  --max-model-len 32768 \
+  --gpu-memory-utilization 0.90
 
-# Watch memory during load
+# More context (65K) — less KV headroom, 1 concurrent sequence
+vllm serve MiniMaxAI/MiniMax-M2.5 \
+  --max-model-len 65536 \
+  --gpu-memory-utilization 0.90
+
+# Monitor while loading:
 watch -n 2 nvidia-smi --query-gpu=memory.used,memory.free --format=csv,noheader
 ```
 
-**Sources:**
-- vLLM memory: https://docs.vllm.ai/en/latest/configuration/conserving_memory/
-- SGLang docs: https://docs.sglang.ai/
-- Qwen3-Coder-Next model card: https://huggingface.co/Qwen/Qwen3-Coder-Next
+**Do not** attempt 196K context on a single H200 at 4-bit. You will OOM.
+
+### Sources
+- vLLM memory docs: https://docs.vllm.ai/en/latest/configuration/conserving_memory/
 - MiniMax M2.5 model card: https://huggingface.co/MiniMaxAI/MiniMax-M2.5
+- Community VRAM benchmarks: peak 728GB observed on 8× RTX Pro 6000 at full 200K context FP8
 
 </details>
 
@@ -506,16 +421,20 @@ watch -n 2 nvidia-smi --query-gpu=memory.used,memory.free --format=csv,noheader
 
 ## Caveats
 
-**SWE-Bench Verified scores:** M2.5 at 80.2% leads, but run your own evals on your actual codebase. Benchmark composition matters — M2.5 may over-index on greenfield vs. patch tasks.
+**M2.5 "spec-writing tendency":** The model plans features and outlines structure before writing code. Works well for greenfield and architecture tasks. Less ideal for surgical single-function patches — it'll draft a refactor plan first. Feature, not bug, for agents.
 
-**MiniMax M2.5 "spec-writing tendency":** The model plans features and outlines structure before writing code. Great for architecture and greenfield. Less ideal if you need surgical single-function patches — it'll write you a 500-line refactor plan first.
+**37% faster than M2.1:** M2.5 matches Claude Opus 4.6 speed on SWE-bench iterations. Interleaved thinking adds per-token latency but improves overall task success rate on multi-step reasoning.
 
-**GLM-5 API pricing:** Varies by provider. Check BigModel (ZhipuAI) for first-party rates; OpenRouter for comparison. Don't self-host unless you have an existing 8× H100 cluster you're already paying for.
+**Interleaved thinking latency:** Expect higher TTFT (time-to-first-token) when thinking is active. The model reasons before responding. Budget for this in latency-sensitive applications.
 
-**Throughput numbers:** Community benchmarks vary significantly by batch size, context length, prompt structure, and GPU state. Treat all tok/s estimates as order-of-magnitude guidance, not SLAs.
+**Vast.ai pricing fluctuates:** H200 availability is supply-driven. Listings disappear. Use Vast.ai for dev/eval; use RunPod for production where price predictability matters.
+
+**No vision:** M2.5 is text/code only. If you need vision later, add Qwen2.5-VL-72B on a separate A100 (~$857-1,109/mo) as a sidecar. LiteLLM can route vision requests to it transparently.
+
+**4-bit quality:** AWQ/GGUF 4-bit is measurably lower quality than FP8. On a 230B model the gap is more pronounced than on 80B models. Prefer FP8 (2× H200) if budget allows — the SWE-bench delta is real.
+
+**Benchmark dates:** Numbers from model cards at release. This landscape moves fast. Run your own evals on your actual codebase before committing.
+
+**Throughput numbers:** Community benchmarks vary by batch size, context length, prompt structure, and GPU state. Treat all tok/s estimates as order-of-magnitude guidance, not SLAs.
 
 **Multi-GPU ops:** Tensor-parallel across multiple GPUs requires a multi-GPU pod (not separate single-GPU pods) — inter-GPU NVLink bandwidth is critical. Verify NVLink availability on RunPod pods before ordering.
-
-**4-bit quality:** AWQ/GGUF 4-bit is measurably lower quality than FP8. For M2.5 specifically, prefer FP8 (2× H200) if the budget allows — the quality gap on a 230B model is more pronounced than on an 80B model.
-
-**Benchmark dates:** Numbers from model cards at release. This landscape moves fast.
