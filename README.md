@@ -63,6 +63,32 @@ Monthly cost:  ~$1,545/mo (Vast.ai Type #29607811, US) · ~$2,585/mo (RunPod)
 
 Fits the model cleanly at 4-bit. KV cache is tight — keep `max_model_len` at 32-65K for reliable concurrency. Don't push 196K context on a single H200; you'll OOM. Best for teams with sequential workloads or up to ~5-7 effective concurrent users.
 
+### Alternative: 8-bit quantization (did not fit)
+
+We initially attempted to deploy M2.5 at 8-bit (FP8) quantization but encountered VRAM limitations:
+
+```
+VRAM needed:   ~230GB (FP8 weights for 230B model)
+Available:     141GB (single H200)
+Result:        ❌ Does not fit — requires 2× H200 minimum for FP8
+```
+
+**Why 8-bit failed:** Even with sparse MoE (only 10B active), the 230B total parameters at FP8 require ~230GB VRAM. This is why we settled on 4-bit (Qwen3-235B-A22B as fallback option), which fits at ~115GB.
+
+### Budget option: A100 80GB with Qwen3-Coder-Next
+
+For teams that need lower cost but can accept slightly reduced capabilities:
+
+```
+Model:         Qwen3-Coder-Next (80B/3B active)
+VRAM needed:   ~46GB (4-bit weights)
+Available:     80GB (A100)
+Monthly cost:  ~$374-1,109/mo (Vast.ai A100) · ~$857-1,109/mo (RunPod)
+SWE-bench:     70.6% (vs M2.5's 80.2%)
+```
+
+**Trade-offs:** Lower SWE-bench score (70.6% vs 80.2%), no thinking mode, but significantly cheaper. Pick this if you need to stay under $1k/mo and primarily do coding tasks.
+
 ---
 
 ## Throughput & Economics
@@ -412,7 +438,7 @@ watch -n 2 nvidia-smi --query-gpu=memory.used,memory.free --format=csv,noheader
 
 **No vision:** M2.5 is text/code only. If you need vision later, add Qwen2.5-VL-72B on a separate A100 (~$857-1,109/mo) as a sidecar. LiteLLM can route vision requests to it transparently.
 
-**4-bit quality:** AWQ/GGUF 4-bit is measurably lower quality than FP8. On a 230B model the gap is more pronounced than on 80B models. The ~$1,577/mo (Vast.ai) / ~$2,585/mo (RunPod) pricing reflects 4-bit deployment.
+**4-bit quality vs 8-bit:** M2.5 at 4-bit (Q4_K_M) shows measurably lower quality than FP8, especially on complex reasoning. The ~$1,545/mo (Vast.ai) / ~$2,585/mo (RunPod) pricing reflects 4-bit deployment due to VRAM constraints (8-bit requires 2× H200). For teams that need 8-bit quality and can budget ~$3k+/mo, consider the 2× H200 FP8 setup, though M2.5's 80.2% SWE-bench at 4-bit is already competitive with Claude Opus 4.6.
 
 **Benchmark dates:** Numbers from model cards at release. This landscape moves fast. Run your own evals on your actual codebase before committing.
 
