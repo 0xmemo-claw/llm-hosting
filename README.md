@@ -144,6 +144,40 @@ vllm serve MiniMaxAI/MiniMax-M2.5 \
   --reasoning-parser deepseek_r1
 ```
 
+### Unsloth (alternative — dynamic quantization, fits smaller GPUs)
+
+[Unsloth](https://unsloth.ai/docs/models/minimax-m25) offers 1.5x-2x faster inference with 70% less VRAM than standard 4-bit via **Dynamic Quantization** — different layers are quantized at different levels (Q4_K_M critical layers, Q3_K for less important). This lets M2.5 run on cheaper hardware.
+
+```
+Standard 4-bit (vLLM/SGLang):  ~115GB VRAM → 1× H200 required
+Unsloth Dynamic 4-bit:          ~80GB VRAM  → 1× A100 80GB ✅
+Unsloth Dynamic 2-bit:          ~45GB VRAM  → 1× L40S 48GB ✅ (low quality)
+```
+
+Unsloth publishes GGUFs at: `unsloth/MiniMax-M2.5-GGUF`
+
+| Quantization | VRAM | Quality | Min GPU | Monthly Cost |
+|---|---|---|---|---|
+| Q8_0 (8-bit) | ~235GB | ≈ FP8 quality | 2× H200 | ~$3k+ |
+| **Q4_K_M (standard)** | ~120GB | Good | 1× H200 | **~$1.5k/mo** |
+| **Q4_K_M (Unsloth Dynamic)** | ~80GB | Good+ | 1× A100 80GB | **~$0.86-1.1k/mo** |
+| Q3_K_M (Unsloth Dynamic) | ~65GB | Moderate | 1× L40S 48GB + extra | ~$0.7k/mo |
+| Q2_K | ~45GB | Low | 1× L40S 48GB | ~$0.5k/mo |
+
+> Unsloth Dynamic quantization claims less degradation than uniform quantization by selectively preserving precision in critical layers. Real-world results vary — benchmark on your own workload before committing.
+
+**Run with llama.cpp (via Unsloth GGUF):**
+```bash
+./llama-server \
+  -m MiniMax-M2.5-Q4_K_M-unsloth.gguf \
+  --port 8001 \
+  -c 65536 \
+  -n 4096 \
+  --n-gpu-layers 999
+```
+
+**Key trade-off:** Unsloth on A100 80GB saves ~$600-650/mo vs H200, but llama.cpp throughput is slower (~20-30 tok/s vs ~35-40 for vLLM) and Unsloth isn't production-battle-tested at scale.
+
 > `--tool-call-parser minimax_m2` is required for correct function-calling behavior.
 > `--reasoning-parser deepseek_r1` enables the `reasoning_details` field (interleaved thinking).
 
