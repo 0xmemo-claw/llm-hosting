@@ -2,10 +2,10 @@
 
 ## Quick Comparison
 
-| | **Option 1 — Personal** | **Option 2 — Premium/Team** |
+| | **Option 1 — Budget ($1–1.5k/mo)** | **Option 2 — Frontier ($5–8k/mo)** |
 |---|---|---|
 | **Model** | Qwen3-Coder-Next (80B/3B active) | Qwen3.5-397B-A17B (397B/17B active) |
-| **Best for** | Solo dev, coding assistant | Teams, agentic workloads, multi-modal |
+| **Best for** | Coding-focused teams, high code quality/$  | Agentic workloads, instruction following, multi-modal |
 | **Budget** | ~$857–1,109/mo (A100) | ~$5,170–7,755/mo (2–3× H200) |
 | **Context** | 256K native | 262K native, ~1M w/ YaRN |
 | **SWE-Bench Verified** | 70.6% 🥇 open-weight value/$ | 68.1% |
@@ -14,11 +14,72 @@
 | **License** | Apache 2.0 | Apache 2.0 |
 | **VRAM (4-bit)** | ~40–46GB → 1× A100 80GB | ~200GB → 2–3× H200 |
 
-**Rule of thumb:** If you're one developer who primarily writes code → Option 1. If you're running agents, handling multi-turn complex instructions, or need team-level throughput → Option 2.
+**Rule of thumb:** If your team primarily writes code and budget is a constraint → Option 1. If you're running agents, handling multi-turn complex instructions, or need frontier-tier instruction following → Option 2.
 
 ---
 
-## Option 1 — Personal Use: Qwen3-Coder-Next (~$1k–1.5k/mo)
+## Throughput & Economics
+
+> Numbers below are from community benchmarks and RunPod on-demand pricing. Estimates are marked — treat them as planning baselines, not guarantees.
+
+### Qwen3-Coder-Next (80B/3B active) — Throughput Data
+
+| Source | Setup | Generation tok/s | Prompt tok/s |
+|---|---|---:|---:|
+| Community benchmark | vLLM FP8, H100 (80GB) | ~120 | — |
+| Community benchmark | vLLM FP8, DGX Spark | ~44 | — |
+| Community benchmark | llama.cpp Q8, 4090+3090 | ~15 | ~221 |
+| Community benchmark | llama.cpp Q8 (optimized) | ~46 | — |
+| **Estimate** | **vLLM 4-bit, A100 80GB** | **~40–60** | — |
+
+### Qwen3.5-397B-A17B (397B/17B active) — Throughput Data
+
+| Source | Setup | Generation tok/s | Notes |
+|---|---|---:|---|
+| apidog article | 4-bit GGUF, single A100 | ~28 | — |
+| Model card | vs Qwen3-Max @ 256K | — | 19× faster decoding |
+| Model card | vs Qwen3-235B-A22B | — | 7.2× faster |
+| **Estimate** | **vLLM/SGLang FP8, 3× H200** | **~40–70** | MoE efficiency: only 17B active |
+| **Estimate** | **SGLang FP8 + MTP speculative** | **~60–140** | 1.5–2× multiplier from NEXTN algorithm |
+| **Estimate** | **vLLM 4-bit, 2× H200** | **~35** | AWQ quantized |
+
+### $/1M Output Tokens
+
+> At 100% utilization (theoretical ceiling). Real-world assumes 30–50% GPU utilization.
+
+| Setup | Hourly cost | Raw tok/s | Tok/hr | $/1M tokens (100% util) | $/1M tokens (real-world) |
+|---|---:|---:|---:|---:|---:|
+| **Coder-Next, 1× A100** | $1.19/hr | ~50 | 180K | ~$6.61 | ~$13–22 |
+| **Coder-Next, 2× L40S (TP=2)** | $1.38/hr | ~80 | 288K | ~$4.79 | ~$10–16 |
+| **397B, 3× H200 FP8** | $10.77/hr | ~50 | 180K | ~$59.83 | ~$80–133 |
+| **397B, 3× H200 FP8 + MTP (1.5×)** | $10.77/hr | ~75 | 270K | ~$39.89 | ~$53–89 |
+| **397B, 2× H200 4-bit** | $7.18/hr | ~35 | 126K | ~$56.98 | ~$114–190 |
+
+**For comparison — Claude API output pricing:**
+
+| Model | $/1M output | $/1M input |
+|---|---:|---:|
+| Claude Opus 4.6 | $75 | $15 |
+| Claude Sonnet 4.5 | $15 | $3 |
+| Claude Haiku 4.5 | $1.25 | $0.25 |
+
+> At real-world utilization, Coder-Next on A100 (~$13–22/M) is cheaper than Claude Sonnet 4.5. The 397B at real-world costs (~$80–133/M) is competitive with or cheaper than Claude Opus 4.6 ($75/M at 100% output).
+
+### Concurrent Users Estimate
+
+> **Assumptions:** average agent session = ~20 tok/s sustained during active generation; 70% of the time agents are idle (waiting, processing, not generating).
+
+| Setup | Raw tok/s | Concurrent active streams | Effective concurrent users (70% idle) |
+|---|---:|---:|---:|
+| **1× A100** (Coder-Next 4-bit) | ~50 | 2–3 | ~7–10 |
+| **2× L40S** (Coder-Next 4-bit TP=2) | ~80 | 3–4 | ~10–13 |
+| **3× H200** (397B FP8) | ~50 | 2–3 | ~7–10 |
+| **3× H200** (397B FP8 + MTP) | ~75 | 3–4 | ~10–13 |
+| **2× H200** (397B 4-bit) | ~35 | 1–2 | ~5–7 |
+
+---
+
+## Option 1 — Budget: Qwen3-Coder-Next (~$1k–1.5k/mo)
 
 ### Why
 
@@ -48,7 +109,7 @@ Context: comfortable 32K, up to ~64K with care
 Concurrency: 1–2 requests
 ```
 
-Cheapest option that runs the model comfortably. Plenty of KV headroom at 32K context. If you're a solo dev running one request at a time, this is the call.
+Cheapest option that runs the model comfortably. Plenty of KV headroom at 32K context. Best value for coding-focused teams running moderate concurrency.
 
 **Option B — 2× L40S 48GB (~$1,000–1,066/mo) ✅ MORE THROUGHPUT**
 
@@ -128,7 +189,7 @@ litellm --config litellm_config.yaml --port 8000
 
 ---
 
-## Option 2 — Premium/Team: Qwen3.5-397B-A17B (~$5k–8k/mo)
+## Option 2 — Frontier: Qwen3.5-397B-A17B (~$5k–8k/mo)
 
 ### TL;DR
 
@@ -476,7 +537,7 @@ Sources: https://docs.runpod.io/serverless/pricing · https://www.runpod.io/pric
 
 **Option 1 vs Option 2 coding quality:** Qwen3-Coder-Next beats Qwen3.5-397B on SWE-Bench Verified (70.6% vs 68.1%). For pure coding tasks, the cheaper model actually wins. The 397B earns its premium on instruction following, multi-turn agents, and multimodal workloads.
 
-**Option 2 cost:** $7,755/mo for Option 2A is ~3× the old 3-tier single-H200 setup. You're paying for having one frontier-tier open-weight model instead of tiered routing.
+**Option 2 cost:** $7,755/mo for Option 2A is ~3× the budget option. You're paying for frontier-tier open-weight instruction following and agentic reliability instead of tiered routing.
 
 **Benchmark dates:** Numbers are from model cards at release. The landscape moves fast — these will be outdated within months.
 
